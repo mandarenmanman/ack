@@ -83,12 +83,23 @@
         <div id="linkStats" class="space-y-2 max-h-48 overflow-y-auto scrollbar-thin"></div>
       </div>
 
-      <!-- 设置 -->
-      <div>
-        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">设置</h3>
+      <!-- 图谱生成与设置 -->
+      <div class="mb-6 space-y-3">
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">生成与设置</h3>
+        
+        <button id="analyzeBookmarks" class="w-full py-2.5 px-3 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white text-sm font-medium rounded-lg transition shadow-md hover:shadow-lg flex items-center justify-center gap-2">
+          <i class="fas fa-wand-magic-sparkles"></i>
+          分析生成新图谱
+        </button>
+        
+        <div id="analyzeStatus" class="hidden flex items-center gap-2 p-2 bg-slate-800 rounded-lg text-xs">
+          <i class="fas fa-circle-notch fa-spin text-cyan-400 font-bold"></i>
+          <span class="text-slate-300"></span>
+        </div>
+
         <button id="openSettings" class="w-full py-2.5 px-3 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-lg transition flex items-center justify-center gap-2">
           <i class="fas fa-cog"></i>
-          AI 设置
+          AI 接口配置
         </button>
       </div>
     </aside>
@@ -118,14 +129,37 @@
         <div class="text-center">
           <div class="text-6xl mb-4">📭</div>
           <h2 class="text-xl font-semibold text-white mb-2">暂无图谱数据</h2>
-          <p class="text-slate-400 mb-6">请先在设置页面分析书签生成图谱</p>
-          <button id="goToSettings" class="py-3 px-6 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium rounded-xl transition shadow-lg shadow-cyan-500/25 flex items-center gap-2 mx-auto">
+          <p class="text-slate-400 mb-6">点击左侧"分析生成新图谱"立即开始，或检查AI配置</p>
+          <button id="goToSettings" class="py-3 px-6 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-xl transition flex items-center gap-2 mx-auto shadow-lg">
             <i class="fas fa-cog"></i>
-            去设置分析
+            检查 AI 配置
           </button>
         </div>
       </div>
     </main>
+
+    <!-- 右侧边栏 -->
+    <aside class="w-64 bg-slate-800 border-l border-slate-700 p-4 overflow-y-auto scrollbar-thin">
+      <!-- 目录创建时间 -->
+      <div class="mb-6">
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center">
+          <i class="fas fa-folder-open text-yellow-500 mr-2"></i>一级目录创建时间
+        </h3>
+        <div id="dirTimeStats" class="space-y-1 text-sm bg-slate-900/50 rounded-lg p-3 border border-slate-700/50">
+          <div class="text-slate-500 text-xs text-center py-2">加载中...</div>
+        </div>
+      </div>
+
+      <!-- 年份统计 -->
+      <div class="mb-6">
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center">
+          <i class="fas fa-chart-bar text-cyan-400 mr-2"></i>按年份统计
+        </h3>
+        <div id="yearStats" class="space-y-2 text-sm bg-slate-900/50 rounded-lg p-3 border border-slate-700/50">
+          <div class="text-slate-500 text-xs text-center py-2">加载中...</div>
+        </div>
+      </div>
+    </aside>
   </div>
 
   <script src="js/graph.js"></script>

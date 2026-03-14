@@ -36,16 +36,19 @@ function initPage() {
   var resetBtn = document.getElementById('resetView');
   var settingsBtn = document.getElementById('openSettings');
   var goToSettingsBtn = document.getElementById('goToSettings');
+  var analyzeBtn = document.getElementById('analyzeBookmarks');
 
-  console.log('Buttons found:', { reloadBtn: reloadBtn, resetBtn: resetBtn, settingsBtn: settingsBtn, goToSettingsBtn: goToSettingsBtn });
+  console.log('Buttons found:', { reloadBtn: reloadBtn, resetBtn: resetBtn, settingsBtn: settingsBtn, goToSettingsBtn: goToSettingsBtn, analyzeBtn: analyzeBtn });
 
   if (reloadBtn) reloadBtn.addEventListener('click', loadGraphData);
   if (resetBtn) resetBtn.addEventListener('click', resetViewFn);
   if (settingsBtn) settingsBtn.addEventListener('click', openSettings);
   if (goToSettingsBtn) goToSettingsBtn.addEventListener('click', openSettings);
+  if (analyzeBtn) analyzeBtn.addEventListener('click', analyzeBookmarks);
 
   // 页面加载时先获取书签总数
   loadBookmarkCount();
+  loadRightSidebarStats();
   loadGraphData();
 }
 
@@ -473,3 +476,228 @@ window.addEventListener('resize', function() {
   simulation.force('center', d3.forceCenter(width / 2, height / 2));
   simulation.alpha(0.3).restart();
 });
+
+// 加载右侧边栏统计信息（一级目录创建时间和按年份统计）
+function loadRightSidebarStats() {
+  chrome.bookmarks.getTree(function(bookmarkTreeNodes) {
+    var firstLevelFolders = [];
+    var yearCounts = {};
+
+    function traverseForYears(nodes) {
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        if (node.url && node.dateAdded) {
+          var year = new Date(node.dateAdded).getFullYear();
+          yearCounts[year] = (yearCounts[year] || 0) + 1;
+        }
+        if (node.children) {
+          traverseForYears(node.children);
+        }
+      }
+    }
+
+    bookmarkTreeNodes.forEach(function(rootNode) {
+      if (rootNode.children) {
+        rootNode.children.forEach(function(baseCategory) {
+          if (baseCategory.children) {
+            baseCategory.children.forEach(function(item) {
+              if (!item.url) { // Identify as folder
+                 firstLevelFolders.push({
+                   title: item.title || '未命名',
+                   dateAdded: item.dateAdded
+                 });
+              }
+            });
+          }
+        });
+      }
+    });
+
+    traverseForYears(bookmarkTreeNodes);
+
+    // 渲染目录（按创建时间倒序排）
+    firstLevelFolders.sort(function(a, b) { return b.dateAdded - a.dateAdded; });
+    var dirHtml = '';
+    if (firstLevelFolders.length === 0) {
+      dirHtml = '<div class="text-slate-500 text-xs text-center py-2">无目录</div>';
+    } else {
+      for (var i = 0; i < firstLevelFolders.length; i++) {
+        var d = firstLevelFolders[i];
+        var dateStr = d.dateAdded ? new Date(d.dateAdded).toLocaleDateString() : '未知';
+        dirHtml += '<div class="flex justify-between items-center py-2 border-b border-slate-700/50 last:border-0 hover:bg-slate-700/30 -mx-2 px-2 rounded transition cursor-default">' +
+          '<span class="text-slate-300 truncate pr-2 text-xs" title="' + d.title + '">' + d.title + '</span>' +
+          '<span class="text-[10px] text-slate-500 whitespace-nowrap">' + dateStr + '</span>' +
+          '</div>';
+      }
+    }
+    var dirEl = document.getElementById('dirTimeStats');
+    if (dirEl) dirEl.innerHTML = dirHtml;
+
+    // 渲染年份统计
+    var years = Object.keys(yearCounts).sort(function(a, b) { return b - a; });
+    var yearHtml = '';
+    if (years.length === 0) {
+      yearHtml = '<div class="text-slate-500 text-xs text-center py-2">无收藏记录</div>';
+    } else {
+      var maxCount = 0;
+      for (var k = 0; k < years.length; k++) {
+        if (yearCounts[years[k]] > maxCount) maxCount = yearCounts[years[k]];
+      }
+
+      for (var j = 0; j < years.length; j++) {
+        var y = years[j];
+        var count = yearCounts[y];
+        var pct = (count / maxCount) * 100;
+        yearHtml += '<div class="flex items-center gap-3 py-1.5">' +
+          '<span class="text-slate-400 w-8 text-xs font-medium">' + y + '</span>' +
+          '<div class="flex-1 h-1.5 bg-slate-700/50 rounded-full overflow-hidden">' +
+          '<div class="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full" style="width: ' + pct + '%"></div>' +
+          '</div>' +
+          '<span class="text-cyan-400 text-xs w-6 text-right font-bold">' + count + '</span>' +
+          '</div>';
+      }
+    }
+    var yearEl = document.getElementById('yearStats');
+    if (yearEl) yearEl.innerHTML = yearHtml;
+  });
+}
+
+// 书签分析功能相关变量与逻辑
+var analyzing = false;
+var analyzeStatusText = '';
+
+function analyzeBookmarks() {
+  if (analyzing) return;
+  analyzing = true;
+  analyzeStatusText = '获取书签数据...';
+  updateAnalyzeButton();
+
+  fetchBookmarks().then(function(bookmarks) {
+    return new Promise(function(resolve) {
+      chrome.storage.sync.get(['aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(result) {
+        resolve({ config: result, bookmarks: bookmarks });
+      });
+    });
+  }).then(function(result) {
+    var config = result.config;
+    var bookmarks = result.bookmarks;
+
+    if (!config.apiKey) {
+      throw new Error('请先在"AI 接口配置"中填写 API Key！');
+    }
+
+    var maxBookmarks = config.batchSize || 50;
+    var bookmarksToAnalyze = bookmarks.slice(0, maxBookmarks);
+
+    analyzeStatusText = '正在分析 ' + bookmarksToAnalyze.length + ' 个书签...';
+    updateAnalyzeButton();
+
+    var provider = config.aiProvider || 'deepseek';
+    var defaultProviders = {
+      deepseek: { endpoint: 'https://api.deepseek.com', model: 'deepseek-chat' },
+      siliconflow: { endpoint: 'https://api.siliconflow.cn', model: 'deepseek-ai/DeepSeek-V3' },
+      openai: { endpoint: 'https://api.openai.com', model: 'gpt-4o-mini' },
+      anthropic: { endpoint: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
+      custom: { endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'claude-sonnet-4-20250514' }
+    };
+
+    var endpoint = config.apiEndpoint || (defaultProviders[provider] ? defaultProviders[provider].endpoint : 'https://api.deepseek.com');
+    var model = config.modelName || (defaultProviders[provider] ? defaultProviders[provider].model : 'deepseek-chat');
+
+    chrome.runtime.sendMessage({
+      action: 'analyzeBookmarksAI',
+      data: {
+        provider: provider,
+        endpoint: endpoint,
+        apiKey: config.apiKey,
+        model: model,
+        bookmarks: bookmarksToAnalyze
+      }
+    }, function(response) {
+      if (chrome.runtime.lastError) {
+        analyzing = false;
+        analyzeStatusText = '分析错误：' + chrome.runtime.lastError.message;
+        updateAnalyzeButton(true);
+        return;
+      }
+
+      if (response && response.success) {
+        chrome.storage.local.set({ graphData: response.data }, function() {
+          analyzing = false;
+          analyzeStatusText = '图谱生成成功！';
+          updateAnalyzeButton(false, true);
+          loadGraphData(); // 重新加载图谱
+        });
+      } else {
+        analyzing = false;
+        analyzeStatusText = '分析失败：' + (response ? response.error : '未知错误');
+        updateAnalyzeButton(true);
+      }
+    });
+
+  }).catch(function(error) {
+    analyzing = false;
+    analyzeStatusText = error.message;
+    updateAnalyzeButton(true);
+  });
+}
+
+function updateAnalyzeButton(isError, isSuccess) {
+  var analyzeBtn = document.getElementById('analyzeBookmarks');
+  var analyzeStatus = document.getElementById('analyzeStatus');
+  
+  if (!analyzeBtn || !analyzeStatus) return;
+  
+  var icon = analyzeBtn.querySelector('i');
+  var textStr = analyzeStatus.querySelector('span');
+  var statusIcon = analyzeStatus.querySelector('i');
+
+  if (analyzing) {
+    analyzeBtn.disabled = true;
+    analyzeBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    analyzeStatus.classList.remove('hidden');
+    statusIcon.className = 'fas fa-circle-notch fa-spin text-cyan-400 font-bold';
+    textStr.textContent = analyzeStatusText;
+    textStr.className = 'text-slate-300 truncate';
+  } else {
+    analyzeBtn.disabled = false;
+    analyzeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    if (isError) {
+      analyzeStatus.classList.remove('hidden');
+      statusIcon.className = 'fas fa-exclamation-circle text-red-400 font-bold';
+      textStr.textContent = analyzeStatusText;
+      textStr.className = 'text-red-400 text-xs';
+    } else if (isSuccess) {
+      analyzeStatus.classList.remove('hidden');
+      statusIcon.className = 'fas fa-check-circle text-green-400 font-bold';
+      textStr.textContent = analyzeStatusText;
+      textStr.className = 'text-green-400 text-xs';
+      setTimeout(function() {
+         analyzeStatus.classList.add('hidden');
+      }, 3000);
+    } else {
+      analyzeStatus.classList.add('hidden');
+    }
+  }
+}
+
+function fetchBookmarks() {
+  return new Promise(function(resolve) {
+    chrome.bookmarks.getTree(function(bookmarkTreeNodes) {
+      var bookmarks = [];
+      function traverse(nodes) {
+        for (var i = 0; i < nodes.length; i++) {
+          var node = nodes[i];
+          if (node.url) {
+            bookmarks.push({ id: node.id, title: node.title, url: node.url });
+          }
+          if (node.children) {
+            traverse(node.children);
+          }
+        }
+      }
+      traverse(bookmarkTreeNodes);
+      resolve(bookmarks);
+    });
+  });
+}

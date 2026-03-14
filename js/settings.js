@@ -7,8 +7,6 @@ var apiEndpoint = '';
 var modelName = '';
 var batchSize = 50;
 var testing = false;
-var analyzing = false;
-var analyzeStatusText = '';
 
 // DOM 元素
 var elements = {};
@@ -47,10 +45,7 @@ function cacheElements() {
   elements.testConnection = document.getElementById('testConnection');
   elements.saveSettings = document.getElementById('saveSettings');
   elements.statusMessage = document.getElementById('statusMessage');
-  elements.analyzeBookmarks = document.getElementById('analyzeBookmarks');
-  elements.analyzeStatus = document.getElementById('analyzeStatus');
   elements.viewGraph = document.getElementById('viewGraph');
-  elements.clearGraph = document.getElementById('clearGraph');
 }
 
 // 绑定事件
@@ -58,9 +53,7 @@ function bindEvents() {
   elements.aiProvider.addEventListener('change', onProviderChange);
   elements.testConnection.addEventListener('click', testConnection);
   elements.saveSettings.addEventListener('click', saveSettings);
-  elements.analyzeBookmarks.addEventListener('click', analyzeBookmarks);
   elements.viewGraph.addEventListener('click', viewGraph);
-  elements.clearGraph.addEventListener('click', clearGraph);
 }
 
 // 加载设置
@@ -186,129 +179,6 @@ function updateTestButton() {
   }
 }
 
-// 分析书签
-function analyzeBookmarks() {
-  analyzing = true;
-  analyzeStatusText = '正在获取书签数据...';
-  updateAnalyzeButton();
-
-  fetchBookmarks().then(function(bookmarks) {
-    analyzeStatusText = '获取到 ' + bookmarks.length + ' 个书签，正在发送 AI 分析...';
-    updateAnalyzeButton();
-    return loadConfig();
-  }).then(function(config) {
-    var endpoint = config.apiEndpoint || getProviderConfig(config.aiProvider).endpoint;
-    var model = config.modelName || getProviderConfig(config.aiProvider).model;
-
-    chrome.runtime.sendMessage({
-      action: 'analyzeBookmarksAI',
-      data: {
-        provider: config.aiProvider,
-        endpoint: endpoint,
-        apiKey: config.apiKey,
-        model: model,
-        bookmarks: config.bookmarks
-      }
-    }, function(response) {
-      analyzing = false;
-      updateAnalyzeButton();
-
-      if (chrome.runtime.lastError) {
-        showStatus('分析失败：' + chrome.runtime.lastError.message, 'error');
-        return;
-      }
-
-      if (response && response.success) {
-        saveGraphData(response.data).then(function() {
-          showStatus('图谱生成成功！点击"查看知识图谱"查看结果。', 'success');
-        });
-      } else {
-        showStatus('分析失败：' + (response ? response.error : '未知错误'), 'error');
-      }
-    });
-  }).catch(function(error) {
-    analyzing = false;
-    updateAnalyzeButton();
-    showStatus('分析失败：' + error.message, 'error');
-  });
-}
-
-// 更新分析按钮状态
-function updateAnalyzeButton() {
-  var icon = elements.analyzeBookmarks.querySelector('i');
-  var text = elements.analyzeBookmarks.querySelector('span');
-  if (analyzing) {
-    icon.className = 'fas fa-spinner fa-spin';
-    text.textContent = '正在分析...';
-    elements.analyzeBookmarks.disabled = true;
-    elements.analyzeBookmarks.classList.add('opacity-50');
-    elements.analyzeStatus.classList.add('show');
-    elements.analyzeStatus.querySelector('span').textContent = analyzeStatusText;
-  } else {
-    icon.className = 'fas fa-wand-magic-sparkles';
-    text.textContent = '开始分析书签生成图谱';
-    elements.analyzeBookmarks.disabled = false;
-    elements.analyzeBookmarks.classList.remove('opacity-50');
-    elements.analyzeStatus.classList.remove('show');
-  }
-}
-
-// 获取书签
-function fetchBookmarks() {
-  return new Promise(function(resolve) {
-    chrome.bookmarks.getTree(function(bookmarkTreeNodes) {
-      var bookmarks = [];
-      function traverse(nodes) {
-        for (var i = 0; i < nodes.length; i++) {
-          var node = nodes[i];
-          if (node.url) {
-            bookmarks.push({ id: node.id, title: node.title, url: node.url });
-          }
-          if (node.children) {
-            traverse(node.children);
-          }
-        }
-      }
-      traverse(bookmarkTreeNodes);
-      resolve(bookmarks);
-    });
-  });
-}
-
-// 加载配置
-function loadConfig() {
-  return new Promise(function(resolve) {
-    chrome.storage.sync.get(['aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(result) {
-      resolve({
-        aiProvider: result.aiProvider || aiProvider,
-        apiKey: result.apiKey,
-        apiEndpoint: result.apiEndpoint,
-        modelName: result.modelName,
-        batchSize: result.batchSize
-      });
-    });
-  });
-}
-
-// 获取服务商配置
-function getProviderConfig(providerName) {
-  var providers = {
-    deepseek: { endpoint: 'https://api.deepseek.com', model: 'deepseek-chat' },
-    siliconflow: { endpoint: 'https://api.siliconflow.cn', model: 'deepseek-ai/DeepSeek-V3' },
-    openai: { endpoint: 'https://api.openai.com', model: 'gpt-4o-mini' },
-    anthropic: { endpoint: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
-    custom: { endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'claude-sonnet-4-20250514' }
-  };
-  return providers[providerName] || providers.deepseek;
-}
-
-// 保存图谱数据
-function saveGraphData(data) {
-  return new Promise(function(resolve) {
-    chrome.storage.local.set({ graphData: data }, resolve);
-  });
-}
-
 // 查看图谱
 function viewGraph() {
   chrome.windows.create({
@@ -321,13 +191,6 @@ function viewGraph() {
       console.error('Failed to open graph view:', chrome.runtime.lastError);
       showStatus('无法打开知识图谱，请重试', 'error');
     }
-  });
-}
-
-// 清除图谱
-function clearGraph() {
-  chrome.storage.local.remove(['graphData'], function() {
-    showStatus('图谱数据已清除', 'info');
   });
 }
 

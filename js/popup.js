@@ -60,6 +60,10 @@ function loadBookmarks() {
       bookmarks = secondLevelNodes;
       extractFolders(secondLevelNodes);
       renderBookmarkTree(secondLevelNodes);
+      
+      // 添加逻辑：隐藏加载提示，显示书签树
+      elements.loadingState.classList.remove('show');
+      elements.bookmarkTree.classList.add('show');
     } else {
       showEmptyBookmarks();
     }

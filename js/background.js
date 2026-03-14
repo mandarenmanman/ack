@@ -164,22 +164,40 @@ function analyzeBookmarks(data) {
   var model = data.model;
   var provider = data.provider;
   var bookmarks = data.bookmarks;
+  var batchSize = data.batchSize || 50;
 
+  // 根据 batchSize 限制分析数量
+  var bookmarksToAnalyze = bookmarks.slice(0, batchSize);
+
+  // 精简格式：只保留必要信息
   var bookmarkSummary = '';
-  for (var i = 0; i < bookmarks.length; i++) {
-    var b = bookmarks[i];
-    bookmarkSummary += (i + 1) + '. ' + (b.title || '无标题') + ' - ' + (b.url || '无 URL') + '\n';
+  for (var i = 0; i < bookmarksToAnalyze.length; i++) {
+    var b = bookmarksToAnalyze[i];
+    // 缩短 URL，只保留域名
+    var domain = '';
+    if (b.url) {
+      var match = b.url.match(/^https?:\/\/([^\/]+)/);
+      domain = match ? match[1] : b.url;
+    }
+    bookmarkSummary += (i + 1) + '. [' + (b.title || '无标题') + '](' + domain + ')\n';
   }
+
+  var truncatedInfo = bookmarksToAnalyze.length < bookmarks.length
+    ? '\n... 还有 ' + (bookmarks.length - batchSize) + ' 个书签未分析（根据批量设置）\n'
+    : '';
 
   var prompt = '分析以下书签列表，生成知识图谱数据。\n\n' +
     '书签列表：\n' + bookmarkSummary + '\n\n' +
     '返回 JSON 格式：\n' +
     '{\n' +
-    '  "nodes": [{"id": "书签 ID", "label": "名称", "category": "分类", "url": "URL"}],\n' +
+    '  "nodes": [{"id": "书签 ID", "label": "名称", "category": "分类", "url": "完整 URL"}],\n' +
     '  "edges": [{"source": "源 ID", "target": "目标 ID", "relation": "关系"}],\n' +
     '  "categories": [{"name": "分类名", "color": "#颜色"}]\n' +
     '}\n\n' +
-    '只返回 JSON，不要其他说明。';
+    '要求：\n' +
+    '1. 根据书签主题自动分类\n' +
+    '2. 相关书签之间建立连接关系\n' +
+    '3. 只返回 JSON，不要其他说明';
 
   var url, body, headers;
 
@@ -223,12 +241,25 @@ function analyzeBookmarks(data) {
     return response.json();
   }).then(function(result) {
     var content;
-    if (result.content && result.content[0]) {
-      content = result.content[0].text;
+    if (result.content && result.content.length > 0) {
+      // 查找 text 类型的内容（跳过 thinking 类型）
+      for (var i = 0; i < result.content.length; i++) {
+        if (result.content[i].type === 'text' && result.content[i].text) {
+          content = result.content[i].text;
+          break;
+        }
+      }
+      // 如果没有找到 text 类型，尝试第一个元素
+      if (!content && result.content[0]) {
+        content = result.content[0].text || result.content[0].content;
+      }
     } else if (result.choices && result.choices[0]) {
       content = result.choices[0].message.content;
     } else {
       throw new Error('无法解析 API 响应');
+    }
+    if (!content) {
+      throw new Error('API 响应内容为空');
     }
     var jsonStr = content.replace(/```json\s*|\s*```/g, '').trim();
     return { success: true, data: JSON.parse(jsonStr) };
