@@ -109,10 +109,29 @@ ${bookmarkSummary}
       { role: 'user', content: prompt }
     ];
 
+    let content;
     if (aiProvider === 'anthropic') {
-      return this.callAnthropic(messages, providerConfig, apiKey);
+      content = await this.callAnthropic(messages, providerConfig, apiKey);
     } else {
-      return this.callOpenAICompatible(messages, providerConfig, apiKey);
+      content = await this.callOpenAICompatible(messages, providerConfig, apiKey);
+    }
+
+    return this.parseAIResponse(content);
+  }
+
+  // 统一解析 AI 返回的 JSON 字符串
+  parseAIResponse(content) {
+    if (!content) {
+      throw new Error('AI 返回内容为空');
+    }
+
+    try {
+      // 清理可能的 markdown 代码块标记
+      const jsonStr = content.replace(/```json\s*|\s*```/g, '').trim();
+      return JSON.parse(jsonStr);
+    } catch (e) {
+      console.error('解析 AI 响应失败:', content);
+      throw new Error('AI 返回的数据格式不正确，无法解析为 JSON');
     }
   }
 
@@ -140,17 +159,7 @@ ${bookmarkSummary}
     }
 
     const data = await response.json();
-    const content = data.choices[0].message.content;
-
-    // 解析 JSON 响应
-    try {
-      // 清理可能的 markdown 代码块标记
-      const jsonStr = content.replace(/```json\s*|\s*```/g, '').trim();
-      return JSON.parse(jsonStr);
-    } catch (e) {
-      console.error('解析 AI 响应失败:', content);
-      throw new Error('AI 返回的数据格式不正确，无法解析为 JSON');
-    }
+    return data.choices[0].message.content;
   }
 
   // 调用 Anthropic 接口
@@ -166,6 +175,8 @@ ${bookmarkSummary}
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
+        // 阳云兼容接口同时接受两种认证
+        'Authorization': `Bearer ${apiKey}`,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
@@ -182,15 +193,29 @@ ${bookmarkSummary}
     }
 
     const data = await response.json();
-    const content = data.content[0].text;
 
-    try {
-      const jsonStr = content.replace(/```json\s*|\s*```/g, '').trim();
-      return JSON.parse(jsonStr);
-    } catch (e) {
-      console.error('解析 AI 响应失败:', content);
-      throw new Error('AI 返回的数据格式不正确，无法解析为 JSON');
+    // 兼容两种响应格式：
+    // 1. Anthropic 原生格式: data.content[].text（注意要跳过 thinking 类型块）
+    // 2. OpenAI 兼容格式（阳云或其他代理可能返回）: data.choices[].message.content
+    let content;
+    if (data.content && data.content.length > 0) {
+      // 找第一个 type === 'text' 的块（跳过 thinking、tool_use 等其他类型）
+      for (let i = 0; i < data.content.length; i++) {
+        if (data.content[i].type === 'text' && data.content[i].text) {
+          content = data.content[i].text;
+          break;
+        }
+      }
+    } else if (data.choices && data.choices.length > 0) {
+      content = data.choices[0].message.content;
     }
+
+    if (!content) {
+      console.error('未能解析的 API 响应内容:', JSON.stringify(data));
+      throw new Error('API 响应内容为空或格式不支持');
+    }
+
+    return content;
   }
 
   // 测试连接
