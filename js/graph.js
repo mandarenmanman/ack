@@ -639,7 +639,7 @@ function doAnalyzeFull() {
     var tempGraph = result.tempGraphData;
 
     if (progress && tempGraph && progress.currentIndex < progress.total) {
-      if (confirm('检测到上次有未完成的分析任务（进度 ' + progress.currentIndex + '/' + progress.total + '），是否继续执行？\n点击"确定"继续，点击"取消"重新开始。')) {
+      if (confirm('检测到上次有未完成的分析任务（进度 ' + progress.offsetCount + progress.currentIndex + '/' + progress.absoluteTotal + '），是否继续执行？\n点击"确定"继续，点击"取消"重新开始。')) {
         fetchBookmarks().then(function(bookmarks) {
            resumeBatchAnalysis(bookmarks, progress, tempGraph);
         });
@@ -806,75 +806,72 @@ function processNextBatch(targetBookmarks, config, progress, tempGraph) {
   var endpoint = config.apiEndpoint || (defaultProviders[provider] ? defaultProviders[provider].endpoint : 'https://api.deepseek.com');
   var model = config.modelName || (defaultProviders[provider] ? defaultProviders[provider].model : 'deepseek-chat');
 
-  chrome.runtime.sendMessage({
-    action: 'analyzeBookmarksAI',
-    data: {
-      provider: provider,
-      endpoint: endpoint,
-      apiKey: config.apiKey,
-      model: model,
-      bookmarks: currentBatch
-    }
-  }, function(response) {
-    if (chrome.runtime.lastError || !response || !response.success) {
-      // 出现错误，中止本轮递归，但是进度已经持久化在 storage 里了
-      analyzing = false;
-      analyzeStatusText = '分析中止或失败，错误：' + (chrome.runtime.lastError ? chrome.runtime.lastError.message : (response ? response.error : '未知错误'));
-      updateAnalyzeButton(true);
-      return;
-    }
-
-    // 合并这一批次拿到的数据
-    var newAiData = response.data;
-    if (newAiData) {
-      if (newAiData.nodes) tempGraph.nodes = tempGraph.nodes.concat(newAiData.nodes);
-      if (newAiData.edges) tempGraph.edges = tempGraph.edges.concat(newAiData.edges);
-      if (newAiData.categories) {
-        var existingCats = new Set(tempGraph.categories.map(function(c) { return c.name; }));
-        newAiData.categories.forEach(function(c) {
-          if (!existingCats.has(c.name)) {
-            tempGraph.categories.push(c);
-            existingCats.add(c.name);
-          }
-        });
+  // 由于 AI Service 类可以直接调，我们让它直接在前端发 Fetch
+  if (window.aiService) {
+    window.aiService.analyzeBookmarks(currentBatch).then(function(result) {
+      var newAiData = result; // AIService 已经帮我们 parse 好了
+      if (newAiData.nodes && newAiData.nodes.length > 0) {
+        tempGraph.nodes = tempGraph.nodes.concat(newAiData.nodes);
+        if (newAiData.edges) {
+          tempGraph.edges = tempGraph.edges.concat(newAiData.edges);
+        }
+        if (newAiData.categories) {
+          var existingCats = new Set(tempGraph.categories.map(function(c) { return c.name; }));
+          newAiData.categories.forEach(function(c) {
+            if (!existingCats.has(c.name)) {
+              tempGraph.categories.push(c);
+              existingCats.add(c.name);
+            }
+          });
+        }
       }
-    }
 
-    // 每次拿到新数据立刻在前端通过 D3.js 重新渲染（满足用户的实时反馈需求）
-    graphData = JSON.parse(JSON.stringify(tempGraph)); // 深拷贝防止污染
-    if (graphData.nodes.length > 0) {
-       hideEmptyState();
-       initGraph(graphData);
-    }
+      // 每次拿到新数据立刻在前端通过 D3.js 重新渲染（满足用户的实时反馈需求）
+      graphData = JSON.parse(JSON.stringify(tempGraph)); // 深拷贝防止污染
+      if (graphData.nodes.length > 0) {
+         hideEmptyState();
+         initGraph(graphData);
+      }
 
-    // 推进游标并持久化进度
-    progress.currentIndex = batchEnd;
+      // 推进游标并持久化进度
+      progress.currentIndex = batchEnd;
 
-    // 如果刚跑完最后一批，直接转正，不用再等下一次轮询来结束它
-    if (progress.currentIndex >= progress.total) {
-      chrome.storage.local.set({ graphData: tempGraph }, function() {
-        chrome.storage.local.remove(['analysisProgress', 'tempGraphData'], function() {
-          analyzing = false;
-          analyzeStatusText = '全量图谱构建完毕！';
-          updateAnalyzeButton(false, true);
-          loadGraphData();
-          checkSyncStatus();
+      // 如果刚跑完最后一批，直接转正，不用再等下一次轮询来结束它
+      if (progress.currentIndex >= progress.total) {
+        chrome.storage.local.set({ graphData: tempGraph }, function() {
+          chrome.storage.local.remove(['analysisProgress', 'tempGraphData'], function() {
+            analyzing = false;
+            analyzeStatusText = '全量图谱构建完毕！';
+            updateAnalyzeButton(false, true);
+            loadGraphData();
+            checkSyncStatus();
+          });
         });
-      });
-      return;
-    }
+        return;
+      }
 
-    // 还没跑完，保存半成品进度
-    chrome.storage.local.set({
-      analysisProgress: progress,
-      tempGraphData: tempGraph
-    }, function() {
-      // 冷却 1.5 秒后继续请求，避免触发大模型并发/频率限制
-      setTimeout(function() {
-        processNextBatch(targetBookmarks, config, progress, tempGraph);
-      }, 1500);
+      // 还没跑完，保存半成品进度
+      chrome.storage.local.set({
+        analysisProgress: progress,
+        tempGraphData: tempGraph
+      }, function() {
+        // 冷却 1.5 秒后继续请求，避免触发大模型并发/频率限制
+        setTimeout(function() {
+          processNextBatch(targetBookmarks, config, progress, tempGraph);
+        }, 1500);
+      });
+    }).catch(function(error) {
+      analyzing = false;
+      analyzeStatusText = '分析中止！网络或API报错: ' + error.message;
+      updateAnalyzeButton(true);
+      // 保存已经爬过的进度，方便用户点击重试恢复
+      chrome.storage.local.set({ analysisProgress: progress, tempGraphData: tempGraph });
     });
-  });
+  } else {
+    analyzing = false;
+    analyzeStatusText = '错误：AIService 未加载';
+    updateAnalyzeButton(true);
+  }
 }
 
 // 保留原先的单次请求方法用于增量更新（通常数据量几条~十几条）

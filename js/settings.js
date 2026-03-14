@@ -136,28 +136,27 @@ function testConnection() {
     model = config.model;
   }
 
-  // 使用 background script 发送请求（绕过 CORS）
-  chrome.runtime.sendMessage({
-    action: 'testAIConnection',
-    data: {
-      provider: aiProvider,
-      endpoint: endpoint,
-      apiKey: apiKey,
-      model: model
-    }
-  }, function(response) {
-    testing = false;
-    updateTestButton();
-
-    if (chrome.runtime.lastError) {
-      showStatus('连接失败：' + chrome.runtime.lastError.message, 'error');
-      return;
-    }
-
-    if (response && response.success) {
-      showStatus('连接测试成功！', 'success');
+  // 保存刚刚输入的最新配置，保证测试的是当前填写的
+  chrome.storage.sync.set({
+    apiEndpoint: endpoint,
+    modelName: model,
+    apiKey: apiKey
+  }, function() {
+    // 强制前端的 AIService 重新 loadConfig 并且测试连接
+    if (window.aiService) {
+      window.aiService.testConnection().then(function() {
+        showStatus('连接成功！API 配置正确', 'success');
+        testing = false;
+        updateTestButton();
+      }).catch(function(error) {
+        showStatus('连接失败：' + error.message, 'error');
+        testing = false;
+        updateTestButton();
+      });
     } else {
-      showStatus('连接失败：' + (response ? response.error : '未知错误'), 'error');
+      showStatus('连接失败：AI服务组件未加载', 'error');
+      testing = false;
+      updateTestButton();
     }
   });
 }
