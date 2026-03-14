@@ -738,9 +738,15 @@ function resumeBatchAnalysis(targetBookmarks, progress, tempGraphData) {
      return !tempIds.has(String(b.id));
   });
 
-  // 5. 重置分析游标：无论上次剩多少，我们直接拿着这个提纯过的“全新队列”从 0 开始扫
-  progress.currentIndex = 0;
+  // 5. 重置分析游标：为了正确显示进度，我们不是从 0 开始。
+  // 我们真正需要处理的是 newPendingQueue，为了在界面上让用户看到“接着扫”的进度感：
+  // 我们将 targetBookmarks 替换为 newPendingQueue，而进度条我们加上已完成的数量（即目前的 tempGraphData.nodes.length）作为偏移基数
+  var completedCount = tempGraphData.nodes.length;
+  progress.currentIndex = 0; 
   progress.total = newPendingQueue.length;
+  // 给 progress 打上一个特殊标记，让界面显示的时候知道要加上偏移量
+  progress.offsetCount = completedCount;
+  progress.absoluteTotal = completedCount + newPendingQueue.length;
   // 直接保存纠偏后的进度和数据，防止还没开始又退出了
   chrome.storage.local.set({
      analysisProgress: progress,
@@ -779,7 +785,11 @@ function processNextBatch(targetBookmarks, config, progress, tempGraph) {
   var batchEnd = Math.min(progress.currentIndex + progress.batchSize, progress.total);
   var currentBatch = targetBookmarks.slice(progress.currentIndex, batchEnd);
 
-  analyzeStatusText = '正在分析批次: ' + progress.currentIndex + ' - ' + batchEnd + ' / ' + progress.total;
+  var displayCurrent = (progress.offsetCount || 0) + progress.currentIndex;
+  var displayEnd = (progress.offsetCount || 0) + batchEnd;
+  var displayTotal = progress.absoluteTotal || progress.total;
+
+  analyzeStatusText = '正在分析批次: ' + displayCurrent + ' - ' + displayEnd + ' / ' + displayTotal;
   updateAnalyzeButton();
 
   var provider = config.aiProvider || 'deepseek';
@@ -830,6 +840,22 @@ function processNextBatch(targetBookmarks, config, progress, tempGraph) {
 
     // 推进游标并持久化进度
     progress.currentIndex = batchEnd;
+
+    // 如果刚跑完最后一批，直接转正，不用再等下一次轮询来结束它
+    if (progress.currentIndex >= progress.total) {
+      chrome.storage.local.set({ graphData: tempGraph }, function() {
+        chrome.storage.local.remove(['analysisProgress', 'tempGraphData'], function() {
+          analyzing = false;
+          analyzeStatusText = '全量图谱构建完毕！';
+          updateAnalyzeButton(false, true);
+          loadGraphData();
+          checkSyncStatus();
+        });
+      });
+      return;
+    }
+
+    // 还没跑完，保存半成品进度
     chrome.storage.local.set({
       analysisProgress: progress,
       tempGraphData: tempGraph
