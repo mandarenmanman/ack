@@ -693,6 +693,8 @@ function startBatchAnalysis(targetBookmarks) {
     var initialProgress = { currentIndex: 0, total: total, batchSize: batchSize };
     var initialGraphData = { nodes: [], edges: [], categories: [] };
 
+    hideEmptyState(); // 全量分析开始，直接进入纯净图谱加载状态
+    
     chrome.storage.local.set({
       analysisProgress: initialProgress,
       tempGraphData: initialGraphData
@@ -836,6 +838,13 @@ function processNextBatch(targetBookmarks, config, progress, tempGraph) {
           }
         });
       }
+    }
+
+    // 每次拿到新数据立刻在前端通过 D3.js 重新渲染（满足用户的实时反馈需求）
+    graphData = JSON.parse(JSON.stringify(tempGraph)); // 深拷贝防止污染
+    if (graphData.nodes.length > 0) {
+       hideEmptyState();
+       initGraph(graphData);
     }
 
     // 推进游标并持久化进度
