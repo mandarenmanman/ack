@@ -571,13 +571,26 @@ function checkSyncStatus() {
   Promise.all([
     fetchBookmarks(),
     new Promise(function(resolve) {
-      chrome.storage.local.get(['graphData'], function(res) { resolve(res.graphData); });
+      chrome.storage.local.get(['graphData', 'analysisProgress'], function(res) { resolve(res); });
     })
   ]).then(function(results) {
     var allBookmarks = results[0];
-    var graphData = results[1];
+    var storageRes = results[1];
+    var graphData = storageRes.graphData;
+    var analysisProgress = storageRes.analysisProgress;
     var syncStatusEl = document.getElementById('syncStatus');
     if (!syncStatusEl) return;
+
+    // 如果处于全量任务被打断的中断状态
+    if (analysisProgress && analysisProgress.currentIndex < analysisProgress.total) {
+       syncStatusEl.innerHTML = '<div class="flex flex-col gap-2">' +
+        '<div class="flex items-center text-xs text-orange-400">' +
+          '<i class="fas fa-hammer mr-1.5 align-middle"></i>' +
+          '<span class="leading-tight">存在未完成的全量构建任务，暂不可用增量同步，请点击下方继续分析。</span>' +
+        '</div>' +
+      '</div>';
+      return;
+    }
 
     if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
        syncStatusEl.innerHTML = '<div class="flex items-center text-xs text-slate-400"><i class="fas fa-inbox text-slate-500 mr-2"></i>暂无图谱数据</div>';
@@ -689,14 +702,59 @@ function startBatchAnalysis(targetBookmarks) {
   });
 }
 
-// 恢复全量分批分析
+// 恢复全量分批分析（包含对中断期间增删的排雷纠偏）
 function resumeBatchAnalysis(targetBookmarks, progress, tempGraphData) {
   analyzing = true;
-  analyzeStatusText = '恢复分析队列...';
+  analyzeStatusText = '校验中断期间的书签变动...';
   updateAnalyzeButton();
 
+  // 1. 获取现在真实的 ID 集合
+  var actualIds = new Set(targetBookmarks.map(function(b) { return String(b.id); }));
+  
+  // 2. 拿到旧的、已经分析好的半成品 ID 集合
+  var tempIds = new Set(tempGraphData.nodes.map(function(n) { return String(n.id); }));
+
+  // 3. 找出停工期间“被删掉”的节点：在 tempIds 里，但不在 actualIds 里
+  var deletedIdsArr = [];
+  tempIds.forEach(function(id) {
+    if (!actualIds.has(id)) deletedIdsArr.push(id);
+  });
+  var deletedSet = new Set(deletedIdsArr);
+
+  // 如果有被删的，从 tempGraphData 里把节点和连线剔除
+  if (deletedSet.size > 0) {
+    tempGraphData.nodes = tempGraphData.nodes.filter(function(n) { return !deletedSet.has(String(n.id)); });
+    tempGraphData.edges = (tempGraphData.edges || []).filter(function(e) {
+       var sMsg = typeof e.source === 'object' ? String(e.source.id) : String(e.source);
+       var tMsg = typeof e.target === 'object' ? String(e.target.id) : String(e.target);
+       return !deletedSet.has(sMsg) && !deletedSet.has(tMsg);
+    });
+    // 更新清存后的集合
+    tempIds = new Set(tempGraphData.nodes.map(function(n) { return String(n.id); }));
+  }
+
+  // 4. 重构待分析队列：用目前所有新鲜的书签，扣除掉 tempGraphData 里面已经拥有且活着的那些节点
+  var newPendingQueue = targetBookmarks.filter(function(b) {
+     return !tempIds.has(String(b.id));
+  });
+
+  // 5. 重置分析游标：无论上次剩多少，我们直接拿着这个提纯过的“全新队列”从 0 开始扫
+  progress.currentIndex = 0;
+  progress.total = newPendingQueue.length;
+  // 直接保存纠偏后的进度和数据，防止还没开始又退出了
+  chrome.storage.local.set({
+     analysisProgress: progress,
+     tempGraphData: tempGraphData
+  });
+
+  analyzeStatusText = '恢复队列：排雷 ' + deletedSet.size + ' 个失效书签，剩 ' + progress.total + ' 篇待测...';
+  updateAnalyzeButton();
+  
   chrome.storage.sync.get(['aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(config) {
-    processNextBatch(targetBookmarks, config, progress, tempGraphData);
+    // 短暂延迟让用户看到状态变化，并开启真正的下一批次递归
+    setTimeout(function() {
+       processNextBatch(newPendingQueue, config, progress, tempGraphData);
+    }, 1000);
   });
 }
 
