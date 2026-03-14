@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI 设置</title>
+  <meta charset="UTF-8">
+  <script src="js/tailwind.js"></script>
+  <link rel="stylesheet" href="css/font-awesome.min.css">
+  <style>
+    body { min-height: 100vh; display: flex; justify-content: center; background: linear-gradient(to bottom, #f8fafc, #e2e8f0); margin: 0; }
+    #app { width: 420px; }
+    .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: #f1f5f9; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+    .status-message { display: none; opacity: 0; transition: opacity 0.3s; }
+    .status-message.show { display: block; opacity: 1; }
+    .analyze-status { display: none; }
+    .analyze-status.show { display: flex; }
+  </style>
+</head>
+<body>
+  <div id="app" class="p-4 space-y-4">
+    <!-- 标题 -->
+    <header class="text-center pb-4 border-b border-gray-200">
+      <h1 class="text-xl font-bold text-gray-800 flex items-center justify-center gap-2">
+        <i class="fas fa-robot text-blue-500 text-2xl"></i>
+        <span>AI 服务配置</span>
+      </h1>
+    </header>
+
+    <!-- 服务商选择 -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <label class="block text-sm font-semibold text-gray-700 mb-2">
+        <i class="fas fa-microchip text-blue-500 mr-2"></i>服务商
+      </label>
+      <select id="aiProvider" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
+        <option value="deepseek">DeepSeek (推荐)</option>
+        <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="custom">自定义服务</option>
+      </select>
+    </div>
+
+    <!-- API Key -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <label class="block text-sm font-semibold text-gray-700 mb-2">
+        <i class="fas fa-key text-blue-500 mr-2"></i>API Key
+      </label>
+      <input id="apiKey" type="password" placeholder="输入你的 API Key" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
+      <div class="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
+        <a href="https://platform.deepseek.com/" target="_blank" class="text-blue-500 hover:underline">DeepSeek</a>
+        <span class="text-gray-300">|</span>
+        <a href="https://cloud.siliconflow.cn/" target="_blank" class="text-blue-500 hover:underline">硅基流动</a>
+        <span class="text-gray-300">|</span>
+        <a href="https://platform.openai.com/" target="_blank" class="text-blue-500 hover:underline">OpenAI</a>
+        <span class="text-gray-300">|</span>
+        <a href="https://console.anthropic.com/" target="_blank" class="text-blue-500 hover:underline">Claude</a>
+      </div>
+    </div>
+
+    <!-- API Endpoint -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <label class="block text-sm font-semibold text-gray-700 mb-2">
+        <i class="fas fa-link text-blue-500 mr-2"></i>API Endpoint
+      </label>
+      <input id="apiEndpoint" type="text" placeholder="留空则使用默认端点" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
+      <p class="mt-1.5 text-xs text-gray-400">留空则使用默认端点</p>
+    </div>
+
+    <!-- 模型名称 -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <label class="block text-sm font-semibold text-gray-700 mb-2">
+        <i class="fas fa-brain text-blue-500 mr-2"></i>模型名称
+      </label>
+      <input id="modelName" type="text" placeholder="留空则使用默认模型" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
+      <p class="mt-1.5 text-xs text-gray-400">留空则使用默认模型</p>
+    </div>
+
+    <!-- 批量大小 -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <label class="block text-sm font-semibold text-gray-700 mb-2">
+        <i class="fas fa-layer-group text-blue-500 mr-2"></i>每次分析的书签数量
+      </label>
+      <input id="batchSize" type="number" min="1" max="100" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
+      <p class="mt-1.5 text-xs text-gray-400">建议值：20-50，太大会导致请求超时</p>
+    </div>
+
+    <!-- 操作按钮 -->
+    <div class="flex gap-2">
+      <button id="testConnection" class="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition flex items-center justify-center gap-2">
+        <i class="fas fa-plug"></i>
+        <span>测试连接</span>
+      </button>
+      <button id="saveSettings" class="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-lg transition shadow-md hover:shadow-lg flex items-center justify-center gap-2">
+        <i class="fas fa-save"></i>
+        <span>保存设置</span>
+      </button>
+    </div>
+
+    <!-- 状态消息 -->
+    <div id="statusMessage" class="status-message p-3 rounded-lg text-sm font-medium text-center"></div>
+
+    <hr class="border-gray-200">
+
+    <!-- 书签分析 -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <h2 class="text-sm font-semibold text-gray-700 mb-3">
+        <i class="fas fa-chart-network text-blue-500 mr-2"></i>书签分析
+      </h2>
+      <button id="analyzeBookmarks" class="w-full py-3 px-4 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white font-medium rounded-lg transition shadow-md hover:shadow-lg flex items-center justify-center gap-2">
+        <i class="fas fa-wand-magic-sparkles"></i>
+        <span>开始分析书签生成图谱</span>
+      </button>
+      <div id="analyzeStatus" class="analyze-status mt-3 flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+        <i class="fas fa-circle-notch fa-spin text-blue-500"></i>
+        <span class="text-sm text-gray-600"></span>
+      </div>
+    </div>
+
+    <!-- 已有图谱 -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <h2 class="text-sm font-semibold text-gray-700 mb-3">
+        <i class="fas fa-project-diagram text-blue-500 mr-2"></i>已有图谱
+      </h2>
+      <div class="flex gap-2">
+        <button id="viewGraph" class="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition flex items-center justify-center gap-2">
+          <i class="fas fa-eye"></i>
+          <span>查看知识图谱</span>
+        </button>
+        <button id="clearGraph" class="flex-1 py-2.5 px-4 bg-red-50 hover:bg-red-100 text-red-600 font-medium rounded-lg transition border border-red-200 flex items-center justify-center gap-2">
+          <i class="fas fa-trash"></i>
+          <span>清除</span>
+        </button>
+      </div>
+    </div>
+    </div>
+
+  <script src="js/settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s https://d3js.org/d3.v7.min.js -o \"d:\\\\github\\\\ack\\\\js\\\\d3.v7.min.js\")",
+      "Bash(curl -s https://cdn.tailwindcss.com -o \"d:\\\\github\\\\ack\\\\js\\\\tailwindcss.min.js\")",
+      "Bash(curl -s https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css -o \"d:\\\\github\\\\ack\\\\css\\\\font-awesome.min.css\")",
+      "Bash(curl -s https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-solid-900.woff2 -o \"d:\\\\github\\\\ack\\\\webfonts\\\\fa-solid-900.woff2\")",
+      "Bash(curl -s https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-regular-400.woff2 -o \"d:\\\\github\\\\ack\\\\webfonts\\\\fa-regular-400.woff2\")",
+      "Bash(curl -s https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-brands-400.woff2 -o \"d:\\\\github\\\\ack\\\\webfonts\\\\fa-brands-400.woff2\")",
+      "Bash(curl -s https://unpkg.com/vue@3/dist/vue.runtime.global.prod.js -o \"d:\\\\github\\\\ack\\\\js\\\\vue.runtime.global.prod.js\")",
+      "Bash(curl -L https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.1/tailwindcss.min.js -o \"d:\\\\github\\\\ack\\\\js\\\\tailwindcss.min.js\")",
+      "Bash(curl -L https://cdn.jsdelivr.net/npm/tailwindcss@3.4.1/dist/tailwindcss.min.js -o \"d:\\\\github\\\\ack\\\\js\\\\tailwindcss.min.js\")",
+      "Bash(curl -L https://unpkg.com/vue@3.4.19/dist/vue.runtime.global.prod.js -o \"d:\\\\github\\\\ack\\\\js\\\\vue.runtime.global.prod.js\")",
+      "Bash(curl -sL https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4 -o \"d:\\\\github\\\\ack\\\\js\\\\tailwind.js\")",
+      "Bash(curl -sL \"https://unpkg.com/vue@3/dist/vue.global.prod.js\" -o \"d:/github/ack/js/vue.global.prod.js\")",
+      "Bash(ls -la d:/github/ack/js/vue*)"
+    ]
+  }
+}

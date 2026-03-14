@@ -3,13 +3,115 @@
 <head>
   <title>书签管理器</title>
   <meta charset="UTF-8">
-  <link rel="stylesheet" href="css/popup.css">
+  <script src="js/tailwind.js"></script>
+  <link rel="stylesheet" href="css/font-awesome.min.css">
+  <style>
+    body { width: 360px; min-height: 400px; margin: 0 auto; }
+    .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: #f1f5f9; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .search-results { display: none; }
+    .search-results.show { display: block; }
+    .empty-state { display: none; }
+    .empty-state.show { display: flex; }
+    .bookmark-list { display: none; }
+    .bookmark-list.show { display: block; }
+    .message-toast { display: none; opacity: 0; transition: opacity 0.3s; }
+    .message-toast.show { display: block; opacity: 1; }
+    .folder-arrow { width: 12px; display: inline-block; }
+    .folder-children { display: none; margin-left: 16px; padding-left: 8px; border-left: 1px solid #e2e8f0; }
+    .folder-children.show { display: block; }
+  </style>
 </head>
-<body>
-  <div id="app"></div>
-  
-  <!-- 引用 runtime-only 版本的 Vue -->
-  <script src="js/vue.runtime.global.js"></script>
+<body class="bg-gradient-to-b from-gray-50 to-gray-100 p-3">
+  <div id="app" class="space-y-3">
+    <!-- 头部 -->
+    <header class="flex items-center justify-between pb-3 border-b border-gray-200">
+      <h1 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+        <span class="w-8 h-8 flex items-center justify-center bg-blue-500 rounded-lg shadow-md">
+          <i class="fas fa-bookmark text-white text-sm"></i>
+        </span>
+        <span>书签管理器</span>
+      </h1>
+      <div class="flex gap-1.5">
+        <button id="openGraphView" class="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-gray-200 hover:bg-blue-50 hover:border-blue-300 hover:shadow-md transition-all" title="知识图谱">
+          <i class="fas fa-project-diagram text-gray-600 hover:text-blue-500"></i>
+        </button>
+        <button id="openSettings" class="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-gray-200 hover:bg-gray-100 hover:border-gray-300 hover:shadow-md transition-all" title="设置">
+          <i class="fas fa-cog text-gray-600 hover:text-gray-800"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- 搜索区域 -->
+    <div class="space-y-2">
+      <div class="relative">
+        <input
+          id="folderSearch"
+          type="text"
+          placeholder="搜索文件夹..."
+          class="w-full pl-10 pr-10 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all placeholder-gray-400"
+        >
+        <i class="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+        <i id="clearSearch" class="fas fa-times absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm cursor-pointer hover:text-gray-600" style="display: none;"></i>
+      </div>
+
+      <!-- 搜索结果 -->
+      <div id="searchResults" class="search-results max-h-40 overflow-y-auto scrollbar-thin bg-white border border-gray-200 rounded-xl shadow-lg">
+        <!-- 动态生成 -->
+      </div>
+
+      <!-- 无结果 -->
+      <div id="noResults" class="search-results py-3 text-center text-sm text-gray-500 bg-white border border-gray-200 rounded-xl">
+        <i class="fas fa-inbox mr-2 text-gray-300"></i>无匹配文件夹
+      </div>
+
+      <!-- 已选择文件夹 -->
+      <div id="selectedFolderBox" class="hidden flex items-center justify-between px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-xl">
+        <span class="text-xs text-blue-800 flex items-center gap-2">
+          <i class="fas fa-check-circle text-blue-500"></i>
+          已选择：<span id="selectedFolderName" class="font-medium"></span>
+        </span>
+        <button id="clearSelection" class="px-2.5 py-1 text-xs bg-white text-red-500 border border-red-200 rounded-lg hover:bg-red-500 hover:text-white transition font-medium">
+          清除
+        </button>
+      </div>
+    </div>
+
+    <!-- 书签列表 -->
+    <div class="max-h-52 overflow-y-auto scrollbar-thin bg-white rounded-xl border border-gray-200 p-2">
+      <div id="loadingState" class="empty-state show flex-col items-center justify-center py-10 text-gray-400">
+        <i class="fas fa-circle-notch fa-spin text-3xl mb-3 text-blue-500"></i>
+        <p class="text-sm">正在加载书签...</p>
+      </div>
+
+      <div id="emptyBookmarks" class="empty-state flex-col items-center justify-center py-10 text-gray-400">
+        <i class="fas fa-bookmark text-5xl mb-3 opacity-20"></i>
+        <p class="text-sm">暂无书签</p>
+      </div>
+
+      <div id="bookmarkTree" class="bookmark-list">
+        <!-- 动态生成书签树 -->
+      </div>
+    </div>
+
+    <!-- 收藏按钮 -->
+    <button
+      id="addBookmark"
+      class="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-xl transition-all transform hover:scale-[1.02] shadow-lg hover:shadow-xl hover:shadow-blue-500/25 flex items-center justify-center gap-2"
+    >
+      <i class="fas fa-plus-circle"></i>
+      <span>一键收藏当前页面</span>
+    </button>
+
+    <!-- 消息提示 -->
+    <div id="messageToast" class="message-toast fixed top-4 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-xl z-50 max-w-[300px] text-center backdrop-blur-sm">
+      <i id="messageIcon" class="fas mr-2"></i>
+      <span id="messageText"></span>
+    </div>
+  </div>
+
   <script src="js/popup.js"></script>
 </body>
 </html>

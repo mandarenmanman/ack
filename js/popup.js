@@ -1,310 +1,354 @@
-const { createApp, h } = Vue;
+// popup.js - 原生 JavaScript 实现
 
-// 书签树组件
-const BookmarkTree = {
-  props: ['nodes'],
-  data() {
-    return {
-      expandedFolders: new Set() // 跟踪展开的文件夹ID
-    };
-  },
-  methods: {
-    openBookmark(url) {
-      // 在新标签页中打开链接
-      chrome.tabs.create({ url: url });
-      window.close(); // 关闭弹出窗口
-    },
-    
-    // 切换文件夹展开状态
-    toggleFolder(folderId) {
-      if (this.expandedFolders.has(folderId)) {
-        this.expandedFolders.delete(folderId);
-      } else {
-        this.expandedFolders.add(folderId);
-      }
-      // 触发重新渲染
-      this.$forceUpdate();
-    },
-    
-    // 检查文件夹是否展开
-    isFolderExpanded(folderId) {
-      return this.expandedFolders.has(folderId);
-    }
-  },
-  render() {
-    const renderNode = (node) => {
-      if (node.children) {
-        // 文件夹节点
-        const isExpanded = this.isFolderExpanded(node.id);
-        const hasChildren = node.children && node.children.length > 0;
-        const arrow = hasChildren ? (isExpanded ? '▼' : '▶') : '';
-        
-        const folderContent = [
-          h('div', { 
-            class: 'folder',
-            onClick: () => hasChildren && this.toggleFolder(node.id),
-            style: { cursor: hasChildren ? 'pointer' : 'default' }
-          }, [
-            h('span', { class: 'folder-arrow' }, arrow),
-            h('span', { class: 'folder-icon' }, '📁'),
-            h('span', { class: 'folder-title' }, node.title || '未命名文件夹')
-          ]),
-          // 只在展开时显示子节点
-          isExpanded && hasChildren ? h(BookmarkTree, { nodes: node.children }) : null
-        ];
-        return h('li', { key: node.id, class: 'bookmark-item folder-item' }, folderContent);
-      } else if (node.url) {
-        // 书签节点
-        return h('li', { key: node.id, class: 'bookmark-item bookmark-link-item' }, [
-          h('a', {
-            href: node.url,
-            class: 'bookmark-link',
-            target: '_blank',
-            onClick: (e) => {
-              e.preventDefault();
-              this.openBookmark(node.url);
-            }
-          }, [
-            h('span', { class: 'bookmark-icon' }, '🔖'),
-            h('span', { class: 'bookmark-title' }, node.title || '未命名书签')
-          ])
-        ]);
-      }
-      return null;
-    };
+// 状态
+var bookmarks = [];
+var allFolders = [];
+var selectedFolder = null;
+var searchQuery = '';
 
-    return h('ul', { class: 'bookmark-list' }, 
-      this.nodes.map(node => renderNode(node)).filter(Boolean)
-    );
-  }
-};
+// DOM 元素
+var elements = {};
 
-// 主应用
-const app = createApp({
-  components: {
-    BookmarkTree
-  },
-  data() {
-    return {
-      bookmarks: [],
-      loading: true,
-      folderSearchQuery: '',
-      searchResults: [],
-      selectedFolder: null,
-      allFolders: [],
-      message: {
-        text: '',
-        type: ''
-      }
-    };
-  },
-  mounted() {
-    this.loadBookmarks();
-  },
-  methods: {
-    // 加载书签
-    loadBookmarks() {
-      chrome.bookmarks.getTree((bookmarkTreeNodes) => {
-        this.loading = false;
-        if (bookmarkTreeNodes && bookmarkTreeNodes.length > 0) {
-          // 跳过第一层根目录，直接显示第二层内容
-          const secondLevelNodes = [];
-          bookmarkTreeNodes.forEach(rootNode => {
-            if (rootNode.children) {
-              secondLevelNodes.push(...rootNode.children);
-            }
-          });
-          this.bookmarks = secondLevelNodes;
-          this.extractFolders(secondLevelNodes);
-        } else {
-          this.bookmarks = [];
-        }
-      });
-    },
-
-    // 构建文件夹的完整路径
-    buildFolderPath(targetId, nodes, currentPath = []) {
-      for (const node of nodes) {
-        if (node.children) {
-          const newPath = [...currentPath, node.title || '未命名文件夹'];
-          if (node.id === targetId) {
-            return newPath;
-          }
-          const result = this.buildFolderPath(targetId, node.children, newPath);
-          if (result) {
-            return result;
-          }
-        }
-      }
-      return null;
-    },
-
-    // 提取所有文件夹
-    extractFolders(nodes, folders = [], parentPath = []) {
-      for (const node of nodes) {
-        if (node.children) {
-          const currentPath = [...parentPath, node.title || '未命名文件夹'];
-          folders.push({
-            id: node.id,
-            title: node.title || '未命名文件夹',
-            path: currentPath,
-            fullPath: currentPath.join(' > ')
-          });
-          this.extractFolders(node.children, folders, currentPath);
-        }
-      }
-      this.allFolders = folders;
-      return folders;
-    },
-
-    // 搜索文件夹
-    searchFolders() {
-      if (!this.folderSearchQuery.trim()) {
-        this.searchResults = [];
-        return;
-      }
-      
-      const query = this.folderSearchQuery.toLowerCase();
-      // 只匹配文件夹名称本身，不匹配路径
-      this.searchResults = this.allFolders.filter(folder => 
-        folder.title.toLowerCase().includes(query)
-      );
-    },
-
-    // 选择文件夹
-    selectFolder(folder) {
-      this.selectedFolder = folder;
-      this.folderSearchQuery = '';
-      this.searchResults = [];
-      this.showMessage(`已选择文件夹: ${folder.title}`, 'success');
-    },
-
-    // 清除选择
-    clearSelection() {
-      this.selectedFolder = null;
-      this.showMessage('已清除文件夹选择', 'info');
-    },
-
-    // 一键收藏
-    addBookmark() {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const currentTab = tabs[0];
-        if (currentTab && currentTab.url && !currentTab.url.startsWith('chrome://')) {
-          const bookmarkOptions = {
-            title: currentTab.title || '未命名页面',
-            url: currentTab.url
-          };
-          
-          // 如果选择了文件夹，添加到指定文件夹
-          if (this.selectedFolder) {
-            bookmarkOptions.parentId = this.selectedFolder.id;
-          }
-          
-          chrome.bookmarks.create(bookmarkOptions, (newBookmark) => {
-            if (chrome.runtime.lastError) {
-              console.error('创建书签失败:', chrome.runtime.lastError);
-              this.showMessage('收藏失败，请重试', 'error');
-            } else {
-              const folderInfo = this.selectedFolder ? ` 到文件夹 "${this.selectedFolder.title}"` : '';
-              this.showMessage(`已收藏: ${newBookmark.title}${folderInfo}`, 'success');
-              // 刷新书签列表
-              setTimeout(() => {
-                this.loadBookmarks();
-              }, 1000);
-            }
-          });
-        } else {
-          this.showMessage('无法收藏此页面', 'error');
-        }
-      });
-    },
-
-    // 显示消息
-    showMessage(text, type = 'info') {
-      this.message = { text, type };
-      // 3秒后自动清除消息
-      setTimeout(() => {
-        this.message = { text: '', type: '' };
-      }, 3000);
-    }
-  },
-  render() {
-    const children = [
-      // 标题
-      h('h1', null, '我的书签'),
-      
-      // 文件夹搜索区域
-      h('div', { class: 'search-section' }, [
-        // 搜索输入框
-        h('input', {
-          type: 'text',
-          value: this.folderSearchQuery,
-          placeholder: '搜索文件夹...',
-          class: 'folder-search',
-          onInput: (e) => {
-            this.folderSearchQuery = e.target.value;
-            this.searchFolders();
-          }
-        }),
-        
-        // 搜索结果
-        this.folderSearchQuery && this.searchResults.length > 0 ? 
-          h('div', { class: 'folder-results' }, 
-            this.searchResults.map(folder => 
-              h('div', {
-                key: folder.id,
-                class: 'folder-item',
-                onClick: () => this.selectFolder(folder)
-              }, [
-                h('div', { class: 'folder-name' }, `📁 ${folder.title}`),
-                h('div', { class: 'folder-path' }, folder.fullPath)
-              ])
-            )
-          ) : null,
-        
-        // 无结果提示
-        this.folderSearchQuery && this.searchResults.length === 0 ? 
-          h('div', { class: 'no-results' }, '无匹配文件夹') : null,
-        
-        // 已选择的文件夹
-        this.selectedFolder ? 
-          h('div', { class: 'selected-folder' }, [
-            `已选择文件夹: ${this.selectedFolder.title}`,
-            h('button', {
-              class: 'clear-btn',
-              onClick: this.clearSelection
-            }, '清除')
-          ]) : null
-      ]),
-      
-      // 书签展示区域
-      h('div', { class: 'bookmarks-container' }, [
-        this.loading ? 
-          h('div', { class: 'loading' }, '正在加载书签...') :
-        this.bookmarks.length === 0 ? 
-          h('div', { class: 'empty-state' }, '暂无书签') :
-          h(BookmarkTree, { nodes: this.bookmarks })
-      ]),
-      
-      // 分隔线
-      h('hr'),
-      
-      // 一键收藏按钮
-      h('button', {
-        class: 'add-bookmark-btn',
-        onClick: this.addBookmark
-      }, '一键收藏当前页面'),
-      
-      // 消息提示
-      this.message.text ? 
-        h('div', {
-          class: ['message', this.message.type]
-        }, this.message.text) : null
-    ];
-    
-    return h('div', null, children.filter(Boolean));
-  }
+// 初始化
+document.addEventListener('DOMContentLoaded', function() {
+  cacheElements();
+  bindEvents();
+  loadBookmarks();
 });
 
-// 挂载应用
-app.mount('#app');
+// 缓存 DOM 元素
+function cacheElements() {
+  elements.folderSearch = document.getElementById('folderSearch');
+  elements.clearSearch = document.getElementById('clearSearch');
+  elements.searchResults = document.getElementById('searchResults');
+  elements.noResults = document.getElementById('noResults');
+  elements.selectedFolderBox = document.getElementById('selectedFolderBox');
+  elements.selectedFolderName = document.getElementById('selectedFolderName');
+  elements.clearSelection = document.getElementById('clearSelection');
+  elements.loadingState = document.getElementById('loadingState');
+  elements.emptyBookmarks = document.getElementById('emptyBookmarks');
+  elements.bookmarkTree = document.getElementById('bookmarkTree');
+  elements.addBookmark = document.getElementById('addBookmark');
+  elements.messageToast = document.getElementById('messageToast');
+  elements.messageText = document.getElementById('messageText');
+  elements.messageIcon = document.getElementById('messageIcon');
+  elements.openGraphView = document.getElementById('openGraphView');
+  elements.openSettings = document.getElementById('openSettings');
+}
+
+// 绑定事件
+function bindEvents() {
+  elements.folderSearch.addEventListener('input', handleSearch);
+  elements.clearSearch.addEventListener('click', clearSearch);
+  elements.clearSelection.addEventListener('click', clearFolderSelection);
+  elements.addBookmark.addEventListener('click', addBookmark);
+  elements.openGraphView.addEventListener('click', openGraphView);
+  elements.openSettings.addEventListener('click', openSettings);
+}
+
+// 加载书签
+function loadBookmarks() {
+  showLoading();
+  chrome.bookmarks.getTree(function(bookmarkTreeNodes) {
+    if (bookmarkTreeNodes && bookmarkTreeNodes.length > 0) {
+      var secondLevelNodes = [];
+      bookmarkTreeNodes.forEach(function(rootNode) {
+        if (rootNode.children) {
+          secondLevelNodes.push.apply(secondLevelNodes, rootNode.children);
+        }
+      });
+      bookmarks = secondLevelNodes;
+      extractFolders(secondLevelNodes);
+      renderBookmarkTree(secondLevelNodes);
+    } else {
+      showEmptyBookmarks();
+    }
+  });
+}
+
+// 提取文件夹用于搜索
+function extractFolders(nodes, folders, parentPath) {
+  folders = folders || [];
+  parentPath = parentPath || [];
+  for (var i = 0; i < nodes.length; i++) {
+    var node = nodes[i];
+    if (node.children) {
+      var currentPath = parentPath.slice();
+      currentPath.push(node.title || '未命名文件夹');
+      folders.push({
+        id: node.id,
+        title: node.title || '未命名文件夹',
+        path: currentPath,
+        fullPath: currentPath.join(' > ')
+      });
+      extractFolders(node.children, folders, currentPath);
+    }
+  }
+  allFolders = folders;
+}
+
+// 渲染书签树
+function renderBookmarkTree(nodes, container, expandedFolders) {
+  if (!container) {
+    container = elements.bookmarkTree;
+    container.innerHTML = '';
+    container.expandedFolders = new Set();
+  }
+  expandedFolders = expandedFolders || container.expandedFolders;
+
+  for (var i = 0; i < nodes.length; i++) {
+    var node = nodes[i];
+    if (node.children) {
+      container.appendChild(createFolderElement(node, expandedFolders));
+    } else if (node.url) {
+      container.appendChild(createBookmarkElement(node));
+    }
+  }
+}
+
+// 创建文件夹元素
+function createFolderElement(node, expandedFolders) {
+  var div = document.createElement('div');
+  div.className = 'mb-1';
+  div.dataset.nodeId = node.id;
+
+  var isExpanded = expandedFolders.has(node.id);
+  var hasChildren = node.children && node.children.length > 0;
+  var arrow = hasChildren ? (isExpanded ? '\uf00d' : '\uf105') : '';
+
+  var header = document.createElement('div');
+  header.className = 'flex items-center gap-2 px-2 py-1.5 rounded-lg ' + (hasChildren ? 'cursor-pointer hover:bg-gray-100' : 'cursor-default');
+  header.innerHTML = '<i class="fas ' + (arrow ? 'text-gray-400 text-xs w-3' : 'w-3') + '">' + arrow + '</i>' +
+    '<i class="fas fa-folder text-yellow-500 text-sm"></i>' +
+    '<span class="text-sm font-medium text-gray-700 flex-1 truncate">' + (node.title || '未命名文件夹') + '</span>';
+
+  div.appendChild(header);
+
+  if (hasChildren) {
+    var childrenDiv = document.createElement('div');
+    childrenDiv.className = 'folder-children' + (isExpanded ? ' show' : '');
+    childrenDiv.dataset.parentId = node.id;
+
+    for (var i = 0; i < node.children.length; i++) {
+      var child = node.children[i];
+      if (child.children) {
+        childrenDiv.appendChild(createFolderElement(child, expandedFolders));
+      } else if (child.url) {
+        childrenDiv.appendChild(createBookmarkElement(child));
+      }
+    }
+
+    div.appendChild(childrenDiv);
+
+    header.addEventListener('click', function() {
+      toggleFolder(node.id, expandedFolders, childrenDiv, header.querySelector('i:first-child'));
+    });
+  }
+
+  return div;
+}
+
+// 切换文件夹展开/折叠
+function toggleFolder(folderId, expandedFolders, childrenDiv, arrowEl) {
+  if (expandedFolders.has(folderId)) {
+    expandedFolders.delete(folderId);
+    childrenDiv.classList.remove('show');
+    arrowEl.className = 'fas fa-angle-right text-gray-400 text-xs w-3';
+    arrowEl.textContent = '\uf105';
+  } else {
+    expandedFolders.add(folderId);
+    childrenDiv.classList.add('show');
+    arrowEl.className = 'fas fa-times text-gray-400 text-xs w-3';
+    arrowEl.textContent = '\uf00d';
+  }
+}
+
+// 创建书签元素
+function createBookmarkElement(node) {
+  var div = document.createElement('div');
+  div.className = 'flex items-center gap-2 px-2 py-1.5 ml-5 rounded-lg hover:bg-blue-50 cursor-pointer group';
+  div.innerHTML = '<i class="fas fa-link text-gray-400 text-xs group-hover:text-blue-500"></i>' +
+    '<a href="' + node.url + '" class="text-sm text-gray-600 group-hover:text-blue-600 flex-1 truncate">' + (node.title || '未命名书签') + '</a>';
+
+  div.addEventListener('click', function(e) {
+    e.preventDefault();
+    chrome.tabs.create({ url: node.url });
+    window.close();
+  });
+
+  return div;
+}
+
+// 处理搜索
+function handleSearch(e) {
+  searchQuery = e.target.value.trim();
+  elements.clearSearch.style.display = searchQuery ? 'block' : 'none';
+
+  if (!searchQuery) {
+    elements.searchResults.classList.remove('show');
+    elements.noResults.classList.remove('show');
+    return;
+  }
+
+  var query = searchQuery.toLowerCase();
+  var results = [];
+  for (var i = 0; i < allFolders.length; i++) {
+    if (allFolders[i].title.toLowerCase().indexOf(query) !== -1) {
+      results.push(allFolders[i]);
+    }
+  }
+
+  if (results.length > 0) {
+    elements.noResults.classList.remove('show');
+    elements.searchResults.classList.add('show');
+    var html = '';
+    for (var i = 0; i < results.length; i++) {
+      var folder = results[i];
+      html += '<div class="search-result-item px-4 py-2.5 cursor-pointer hover:bg-blue-50 transition border-b border-gray-100 last:border-0" data-folder-id="' + folder.id + '">' +
+        '<div class="flex items-center gap-2.5">' +
+        '<i class="fas fa-folder text-yellow-500"></i>' +
+        '<span class="text-sm font-medium text-gray-700">' + folder.title + '</span>' +
+        '</div>' +
+        '<div class="text-xs text-gray-400 mt-1 ml-6">' + folder.fullPath + '</div>' +
+        '</div>';
+    }
+    elements.searchResults.innerHTML = html;
+
+    var items = elements.searchResults.querySelectorAll('.search-result-item');
+    for (var i = 0; i < items.length; i++) {
+      items[i].addEventListener('click', function() {
+        selectFolder(this.dataset.folderId);
+      });
+    }
+  } else {
+    elements.searchResults.classList.remove('show');
+    elements.noResults.classList.add('show');
+  }
+}
+
+// 清除搜索
+function clearSearch() {
+  elements.folderSearch.value = '';
+  elements.clearSearch.style.display = 'none';
+  elements.searchResults.classList.remove('show');
+  elements.noResults.classList.remove('show');
+  searchQuery = '';
+}
+
+// 选择文件夹
+function selectFolder(folderId) {
+  var folder = null;
+  for (var i = 0; i < allFolders.length; i++) {
+    if (allFolders[i].id === folderId) {
+      folder = allFolders[i];
+      break;
+    }
+  }
+  if (folder) {
+    selectedFolder = folder;
+    elements.selectedFolderName.textContent = folder.title;
+    elements.selectedFolderBox.classList.remove('hidden');
+    elements.folderSearch.value = '';
+    elements.clearSearch.style.display = 'none';
+    elements.searchResults.classList.remove('show');
+    elements.noResults.classList.remove('show');
+    showMessage('已选择文件夹：' + folder.title, 'success');
+  }
+}
+
+// 清除文件夹选择
+function clearFolderSelection() {
+  selectedFolder = null;
+  elements.selectedFolderBox.classList.add('hidden');
+  showMessage('已清除文件夹选择', 'info');
+}
+
+// 添加书签
+function addBookmark() {
+  chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+    var currentTab = tabs[0];
+    if (currentTab && currentTab.url && currentTab.url.indexOf('chrome://') !== 0) {
+      var options = {
+        title: currentTab.title || '未命名页面',
+        url: currentTab.url
+      };
+
+      if (selectedFolder) {
+        options.parentId = selectedFolder.id;
+      }
+
+      chrome.bookmarks.create(options, function(newBookmark) {
+        if (chrome.runtime.lastError) {
+          showMessage('收藏失败，请重试', 'error');
+        } else {
+          var folderInfo = selectedFolder ? ' 到文件夹 "' + selectedFolder.title + '"' : '';
+          showMessage('已收藏：' + newBookmark.title + folderInfo, 'success');
+          setTimeout(function() { loadBookmarks(); }, 1000);
+        }
+      });
+    } else {
+      showMessage('无法收藏此页面', 'error');
+    }
+  });
+}
+
+// 打开知识图谱
+function openGraphView() {
+  chrome.windows.create({
+    url: 'graph.html',
+    width: 1200,
+    height: 800,
+    type: 'popup'
+  }, function() {
+    if (chrome.runtime.lastError) {
+      showMessage('无法打开知识图谱，请重试', 'error');
+    }
+  });
+}
+
+// 打开设置
+function openSettings() {
+  chrome.tabs.create({ url: 'settings.html' }, function() {
+    if (chrome.runtime.lastError) {
+      showMessage('无法打开设置页面，请重试', 'error');
+    }
+  });
+}
+
+// 显示加载状态
+function showLoading() {
+  elements.loadingState.classList.add('show');
+  elements.emptyBookmarks.classList.remove('show');
+  elements.bookmarkTree.classList.remove('show');
+}
+
+// 显示空书签
+function showEmptyBookmarks() {
+  elements.loadingState.classList.remove('show');
+  elements.emptyBookmarks.classList.add('show');
+  elements.bookmarkTree.classList.remove('show');
+}
+
+// 显示消息
+function showMessage(text, type) {
+  type = type || 'info';
+  var icons = {
+    success: 'fa-check-circle',
+    error: 'fa-exclamation-circle',
+    info: 'fa-info-circle'
+  };
+
+  var colors = {
+    success: 'bg-green-500/95 text-white',
+    error: 'bg-red-500/95 text-white',
+    info: 'bg-blue-500/95 text-white'
+  };
+
+  elements.messageIcon.className = 'fas mr-2 ' + icons[type];
+  elements.messageText.textContent = text;
+  elements.messageToast.className = 'message-toast show fixed top-4 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-xl z-50 max-w-[300px] text-center backdrop-blur-sm ' + colors[type];
+
+  setTimeout(function() {
+    elements.messageToast.classList.remove('show');
+  }, 3000);
+}

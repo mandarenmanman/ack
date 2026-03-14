@@ -1,22 +1,31 @@
 {
   "manifest_version": 3,
-  "name": "高级书签管理器",
-  "version": "1.0",
-  "description": "一个用于搜索、添加和管理书签的浏览器扩展。",
+  "name": "ACK高级书签管理器",
+  "version": "1.0.1",
+  "description": "智能书签管理，支持文件夹搜索、AI 知识图谱分析",
   "permissions": [
     "bookmarks",
     "activeTab",
-    "notifications"
+    "notifications",
+    "storage",
+    "tabs",
+    "windows"
+  ],
+  "host_permissions": [
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*",
+    "https://api.deepseek.com/*",
+    "https://api.siliconflow.cn/*"
   ],
   "icons": {
-    "16": "icons/icon16.svg",
-    "48": "icons/icon48.svg",
-    "128": "icons/icon128.svg"
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "action": {
     "default_icon": {
-      "16": "icons/icon16.svg",
-      "48": "icons/icon48.svg"
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
     },
     "default_title": "我的书签",
     "default_popup": "popup.html"
