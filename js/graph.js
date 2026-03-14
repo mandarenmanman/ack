@@ -40,16 +40,17 @@ function initPage() {
 
   console.log('Buttons found:', { reloadBtn: reloadBtn, resetBtn: resetBtn, settingsBtn: settingsBtn, goToSettingsBtn: goToSettingsBtn, analyzeBtn: analyzeBtn });
 
-  if (reloadBtn) reloadBtn.addEventListener('click', loadGraphData);
+  if (reloadBtn) reloadBtn.addEventListener('click', function() { loadGraphData(); checkSyncStatus(); });
   if (resetBtn) resetBtn.addEventListener('click', resetViewFn);
   if (settingsBtn) settingsBtn.addEventListener('click', openSettings);
   if (goToSettingsBtn) goToSettingsBtn.addEventListener('click', openSettings);
-  if (analyzeBtn) analyzeBtn.addEventListener('click', analyzeBookmarks);
+  if (analyzeBtn) analyzeBtn.addEventListener('click', doAnalyzeFull);
 
   // 页面加载时先获取书签总数
   loadBookmarkCount();
   loadRightSidebarStats();
   loadGraphData();
+  checkSyncStatus();
 }
 
 // 使用多种方式确保页面加载后执行
@@ -562,34 +563,250 @@ function loadRightSidebarStats() {
   });
 }
 
-// 书签分析功能相关变量与逻辑
+// 书签分析及同步功能逻辑
 var analyzing = false;
 var analyzeStatusText = '';
 
-function analyzeBookmarks() {
-  if (analyzing) return;
-  analyzing = true;
-  analyzeStatusText = '获取书签数据...';
-  updateAnalyzeButton();
+function checkSyncStatus() {
+  Promise.all([
+    fetchBookmarks(),
+    new Promise(function(resolve) {
+      chrome.storage.local.get(['graphData'], function(res) { resolve(res.graphData); });
+    })
+  ]).then(function(results) {
+    var allBookmarks = results[0];
+    var graphData = results[1];
+    var syncStatusEl = document.getElementById('syncStatus');
+    if (!syncStatusEl) return;
 
-  fetchBookmarks().then(function(bookmarks) {
-    return new Promise(function(resolve) {
-      chrome.storage.sync.get(['aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(result) {
-        resolve({ config: result, bookmarks: bookmarks });
+    if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
+       syncStatusEl.innerHTML = '<div class="flex items-center text-xs text-slate-400"><i class="fas fa-inbox text-slate-500 mr-2"></i>暂无图谱数据</div>';
+       return;
+    }
+
+    var currentIds = new Set(graphData.nodes.map(function(n) { return String(n.id); }));
+    var actualIds = new Set(allBookmarks.map(function(b) { return String(b.id); }));
+    
+    var deletedIds = new Set();
+    currentIds.forEach(function(id) {
+       if (!actualIds.has(id)) deletedIds.add(id);
+    });
+
+    var newBookmarks = allBookmarks.filter(function(b) { return !currentIds.has(String(b.id)); });
+    
+    if (newBookmarks.length === 0 && deletedIds.size === 0) {
+      syncStatusEl.innerHTML = '<div class="flex items-center text-xs text-green-400"><i class="fas fa-check-circle mr-2"></i>图谱已完全同步最新书签</div>';
+    } else {
+      var msg = [];
+      if (newBookmarks.length > 0) msg.push(newBookmarks.length + ' 个新收藏');
+      if (deletedIds.size > 0) msg.push(deletedIds.size + ' 个失效书签');
+
+      syncStatusEl.innerHTML = '<div class="flex flex-col gap-2">' +
+        '<div class="flex items-center text-xs text-yellow-400">' +
+          '<i class="fas fa-exclamation-circle mr-1.5 align-middle"></i>' +
+          '<span class="leading-tight">发现 ' + msg.join('，') + '未同步记录</span>' +
+        '</div>' +
+        '<button id="syncBookmarksBtn" class="w-full py-2 px-3 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white text-xs font-medium rounded-lg transition shadow-md hover:shadow-lg flex items-center justify-center gap-2">' +
+          '<i class="fas fa-magic"></i>一键增量同步图谱' +
+        '</button>' +
+      '</div>';
+      
+      document.getElementById('syncBookmarksBtn').addEventListener('click', function() {
+         doAnalyzeIncremental(newBookmarks, deletedIds, graphData);
+      });
+    }
+  });
+}
+
+function doAnalyzeFull() {
+  if (analyzing) return;
+  
+  chrome.storage.local.get(['analysisProgress', 'tempGraphData'], function(result) {
+    var progress = result.analysisProgress;
+    var tempGraph = result.tempGraphData;
+
+    if (progress && tempGraph && progress.currentIndex < progress.total) {
+      if (confirm('检测到上次有未完成的分析任务（进度 ' + progress.currentIndex + '/' + progress.total + '），是否继续执行？\n点击"确定"继续，点击"取消"重新开始。')) {
+        fetchBookmarks().then(function(bookmarks) {
+           resumeBatchAnalysis(bookmarks, progress, tempGraph);
+        });
+        return;
+      }
+    }
+    
+    if(!confirm('这将清空现有图谱数据，采用分批处理消耗Token进行全量分析。\n整个过程可能持续几分钟，确认继续吗？')) return;
+    
+    // 清空历史记录并从头开始
+    chrome.storage.local.remove(['analysisProgress', 'tempGraphData'], function() {
+      fetchBookmarks().then(function(bookmarks) {
+        startBatchAnalysis(bookmarks);
       });
     });
-  }).then(function(result) {
-    var config = result.config;
-    var bookmarks = result.bookmarks;
+  });
+}
 
+function doAnalyzeIncremental(newBookmarks, deletedIds, currentGraphData) {
+  if (analyzing) return;
+  
+  if (newBookmarks.length === 0 && deletedIds.size > 0) {
+    analyzeStatusText = '清理失效节点...';
+    updateAnalyzeButton();
+    setTimeout(function() {
+      finishIncrementalUpdate(currentGraphData, deletedIds, null);
+    }, 500);
+    return;
+  }
+  
+  // 增量暂时保留原来的一把梭请求（因为数量通常很少），加上中断检查
+  performAnalysisSingleRequest(newBookmarks, true, deletedIds, currentGraphData);
+}
+
+// 启动全量分批分析
+function startBatchAnalysis(targetBookmarks) {
+  analyzing = true;
+  analyzeStatusText = '初始化分析队列...';
+  updateAnalyzeButton();
+
+  chrome.storage.sync.get(['aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(config) {
+    if (!config.apiKey) {
+      analyzing = false;
+      analyzeStatusText = '请先在"AI 接口配置"中填写 API Key！';
+      updateAnalyzeButton(true);
+      return;
+    }
+
+    var batchSize = config.batchSize || 50;
+    var total = targetBookmarks.length;
+    var initialProgress = { currentIndex: 0, total: total, batchSize: batchSize };
+    var initialGraphData = { nodes: [], edges: [], categories: [] };
+
+    chrome.storage.local.set({
+      analysisProgress: initialProgress,
+      tempGraphData: initialGraphData
+    }, function() {
+      processNextBatch(targetBookmarks, config, initialProgress, initialGraphData);
+    });
+  });
+}
+
+// 恢复全量分批分析
+function resumeBatchAnalysis(targetBookmarks, progress, tempGraphData) {
+  analyzing = true;
+  analyzeStatusText = '恢复分析队列...';
+  updateAnalyzeButton();
+
+  chrome.storage.sync.get(['aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(config) {
+    processNextBatch(targetBookmarks, config, progress, tempGraphData);
+  });
+}
+
+// 核心递归：处理下一个分批
+function processNextBatch(targetBookmarks, config, progress, tempGraph) {
+  if (!analyzing) return; // 如果被外部强行中止
+
+  if (progress.currentIndex >= progress.total) {
+    // 所有批次完成
+    chrome.storage.local.set({ graphData: tempGraph }, function() {
+      chrome.storage.local.remove(['analysisProgress', 'tempGraphData'], function() {
+        analyzing = false;
+        analyzeStatusText = '全量图谱构建完毕！';
+        updateAnalyzeButton(false, true);
+        loadGraphData();
+        checkSyncStatus();
+      });
+    });
+    return;
+  }
+
+  var batchEnd = Math.min(progress.currentIndex + progress.batchSize, progress.total);
+  var currentBatch = targetBookmarks.slice(progress.currentIndex, batchEnd);
+
+  analyzeStatusText = '正在分析批次: ' + progress.currentIndex + ' - ' + batchEnd + ' / ' + progress.total;
+  updateAnalyzeButton();
+
+  var provider = config.aiProvider || 'deepseek';
+  var defaultProviders = {
+    deepseek: { endpoint: 'https://api.deepseek.com', model: 'deepseek-chat' },
+    siliconflow: { endpoint: 'https://api.siliconflow.cn', model: 'deepseek-ai/DeepSeek-V3' },
+    openai: { endpoint: 'https://api.openai.com', model: 'gpt-4o-mini' },
+    anthropic: { endpoint: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
+    custom: { endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'claude-sonnet-4-20250514' }
+  };
+
+  var endpoint = config.apiEndpoint || (defaultProviders[provider] ? defaultProviders[provider].endpoint : 'https://api.deepseek.com');
+  var model = config.modelName || (defaultProviders[provider] ? defaultProviders[provider].model : 'deepseek-chat');
+
+  chrome.runtime.sendMessage({
+    action: 'analyzeBookmarksAI',
+    data: {
+      provider: provider,
+      endpoint: endpoint,
+      apiKey: config.apiKey,
+      model: model,
+      bookmarks: currentBatch
+    }
+  }, function(response) {
+    if (chrome.runtime.lastError || !response || !response.success) {
+      // 出现错误，中止本轮递归，但是进度已经持久化在 storage 里了
+      analyzing = false;
+      analyzeStatusText = '分析中止或失败，错误：' + (chrome.runtime.lastError ? chrome.runtime.lastError.message : (response ? response.error : '未知错误'));
+      updateAnalyzeButton(true);
+      return;
+    }
+
+    // 合并这一批次拿到的数据
+    var newAiData = response.data;
+    if (newAiData) {
+      if (newAiData.nodes) tempGraph.nodes = tempGraph.nodes.concat(newAiData.nodes);
+      if (newAiData.edges) tempGraph.edges = tempGraph.edges.concat(newAiData.edges);
+      if (newAiData.categories) {
+        var existingCats = new Set(tempGraph.categories.map(function(c) { return c.name; }));
+        newAiData.categories.forEach(function(c) {
+          if (!existingCats.has(c.name)) {
+            tempGraph.categories.push(c);
+            existingCats.add(c.name);
+          }
+        });
+      }
+    }
+
+    // 推进游标并持久化进度
+    progress.currentIndex = batchEnd;
+    chrome.storage.local.set({
+      analysisProgress: progress,
+      tempGraphData: tempGraph
+    }, function() {
+      // 冷却 1.5 秒后继续请求，避免触发大模型并发/频率限制
+      setTimeout(function() {
+        processNextBatch(targetBookmarks, config, progress, tempGraph);
+      }, 1500);
+    });
+  });
+}
+
+// 保留原先的单次请求方法用于增量更新（通常数据量几条~十几条）
+function performAnalysisSingleRequest(targetBookmarks, isIncremental, deletedIds, currentGraphData) {
+  analyzing = true;
+  analyzeStatusText = '获取配置...';
+  updateAnalyzeButton();
+
+  new Promise(function(resolve) {
+    chrome.storage.sync.get(['aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(result) {
+      resolve(result);
+    });
+  }).then(function(config) {
     if (!config.apiKey) {
       throw new Error('请先在"AI 接口配置"中填写 API Key！');
     }
 
     var maxBookmarks = config.batchSize || 50;
-    var bookmarksToAnalyze = bookmarks.slice(0, maxBookmarks);
+    var bookmarksToAnalyze = targetBookmarks.slice(0, maxBookmarks);
 
-    analyzeStatusText = '正在分析 ' + bookmarksToAnalyze.length + ' 个书签...';
+    if (bookmarksToAnalyze.length < targetBookmarks.length) {
+       analyzeStatusText = '正在分析前 ' + bookmarksToAnalyze.length + ' 个书签 (超限拦截)...';
+    } else {
+       analyzeStatusText = '正在请求 AI 分析 ' + bookmarksToAnalyze.length + ' 个书签...';
+    }
     updateAnalyzeButton();
 
     var provider = config.aiProvider || 'deepseek';
@@ -615,23 +832,23 @@ function analyzeBookmarks() {
       }
     }, function(response) {
       if (chrome.runtime.lastError) {
-        analyzing = false;
-        analyzeStatusText = '分析错误：' + chrome.runtime.lastError.message;
-        updateAnalyzeButton(true);
-        return;
+        throw new Error(chrome.runtime.lastError.message);
       }
 
       if (response && response.success) {
-        chrome.storage.local.set({ graphData: response.data }, function() {
-          analyzing = false;
-          analyzeStatusText = '图谱生成成功！';
-          updateAnalyzeButton(false, true);
-          loadGraphData(); // 重新加载图谱
-        });
+        if (isIncremental) {
+           finishIncrementalUpdate(currentGraphData, deletedIds, response.data);
+        } else {
+           chrome.storage.local.set({ graphData: response.data }, function() {
+             analyzing = false;
+             analyzeStatusText = '增量图谱生成成功！';
+             updateAnalyzeButton(false, true);
+             loadGraphData();
+             checkSyncStatus();
+           });
+        }
       } else {
-        analyzing = false;
-        analyzeStatusText = '分析失败：' + (response ? response.error : '未知错误');
-        updateAnalyzeButton(true);
+        throw new Error(response ? response.error : '未知通信错误');
       }
     });
 
@@ -642,19 +859,64 @@ function analyzeBookmarks() {
   });
 }
 
+function finishIncrementalUpdate(graphData, deletedIds, newAiData) {
+  // 移除失效节点
+  if (deletedIds && deletedIds.size > 0) {
+    graphData.nodes = graphData.nodes.filter(function(n) { return !deletedIds.has(String(n.id)); });
+    graphData.edges = (graphData.edges || []).filter(function(e) {
+       var sMsg = typeof e.source === 'object' ? String(e.source.id) : String(e.source);
+       var tMsg = typeof e.target === 'object' ? String(e.target.id) : String(e.target);
+       return !deletedIds.has(sMsg) && !deletedIds.has(tMsg);
+    });
+  }
+  
+  // 增加新节点
+  if (newAiData) {
+     if (newAiData.nodes) {
+       graphData.nodes = graphData.nodes.concat(newAiData.nodes);
+     }
+     if (newAiData.edges) {
+       graphData.edges = (graphData.edges || []).concat(newAiData.edges);
+     }
+     if (newAiData.categories) {
+       graphData.categories = graphData.categories || [];
+       var existingCats = new Set(graphData.categories.map(function(c) { return c.name; }));
+       newAiData.categories.forEach(function(c) {
+          if (!existingCats.has(c.name)) {
+             graphData.categories.push(c);
+             existingCats.add(c.name);
+          }
+       });
+     }
+  }
+
+  chrome.storage.local.set({ graphData: graphData }, function() {
+    analyzing = false;
+    analyzeStatusText = '增量同步成功！';
+    updateAnalyzeButton(false, true);
+    loadGraphData();
+    checkSyncStatus();
+  });
+}
+
 function updateAnalyzeButton(isError, isSuccess) {
   var analyzeBtn = document.getElementById('analyzeBookmarks');
+  var syncBtn = document.getElementById('syncBookmarksBtn');
   var analyzeStatus = document.getElementById('analyzeStatus');
   
   if (!analyzeBtn || !analyzeStatus) return;
   
-  var icon = analyzeBtn.querySelector('i');
   var textStr = analyzeStatus.querySelector('span');
   var statusIcon = analyzeStatus.querySelector('i');
 
   if (analyzing) {
     analyzeBtn.disabled = true;
     analyzeBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    if (syncBtn) {
+      syncBtn.disabled = true;
+      syncBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+    
     analyzeStatus.classList.remove('hidden');
     statusIcon.className = 'fas fa-circle-notch fa-spin text-cyan-400 font-bold';
     textStr.textContent = analyzeStatusText;
@@ -662,6 +924,11 @@ function updateAnalyzeButton(isError, isSuccess) {
   } else {
     analyzeBtn.disabled = false;
     analyzeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    if (syncBtn) {
+      syncBtn.disabled = false;
+      syncBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+    
     if (isError) {
       analyzeStatus.classList.remove('hidden');
       statusIcon.className = 'fas fa-exclamation-circle text-red-400 font-bold';
@@ -674,7 +941,7 @@ function updateAnalyzeButton(isError, isSuccess) {
       textStr.className = 'text-green-400 text-xs';
       setTimeout(function() {
          analyzeStatus.classList.add('hidden');
-      }, 3000);
+      }, 3500);
     } else {
       analyzeStatus.classList.add('hidden');
     }
