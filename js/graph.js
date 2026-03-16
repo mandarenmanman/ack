@@ -250,6 +250,49 @@ function initGraph(data) {
     tooltip.querySelector('.tooltip-url').textContent = d.url || '无 URL';
     tooltip.querySelector('.tooltip-category').textContent = d.category || '未分类';
     tooltip.querySelector('.tooltip-connections').textContent = connectionCount;
+
+    // Summary (if exists)
+    var summaryEl = tooltip.querySelector('.tooltip-summary');
+    if (d.summary) {
+      summaryEl.textContent = d.summary;
+      summaryEl.classList.remove('hidden');
+    } else {
+      summaryEl.classList.add('hidden');
+    }
+
+    // Sub-domain
+    var subDomainWrap = tooltip.querySelector('.tooltip-subdomain-wrap');
+    if (d.sub_domain) {
+      tooltip.querySelector('.tooltip-subdomain').textContent = d.sub_domain;
+      subDomainWrap.classList.remove('hidden');
+    } else {
+      subDomainWrap.classList.add('hidden');
+    }
+
+    // Format
+    var formatWrap = tooltip.querySelector('.tooltip-format-wrap');
+    if (d.format) {
+      tooltip.querySelector('.tooltip-format').textContent = d.format;
+      formatWrap.classList.remove('hidden');
+    } else {
+      formatWrap.classList.add('hidden');
+    }
+
+    // Tags
+    var tagsContainer = tooltip.querySelector('.tooltip-tags-container');
+    tagsContainer.innerHTML = '';
+    if (d.tags && d.tags.length > 0) {
+      d.tags.forEach(function(tag) {
+        var badge = document.createElement('span');
+        badge.className = 'px-1.5 py-0.5 bg-slate-700 text-cyan-400 rounded text-xs border border-slate-600';
+        badge.textContent = tag;
+        tagsContainer.appendChild(badge);
+      });
+      tagsContainer.classList.remove('hidden');
+    } else {
+      tagsContainer.classList.add('hidden');
+    }
+
     tooltip.classList.remove('opacity-0');
     tooltip.classList.add('opacity-100');
   });
@@ -811,19 +854,62 @@ function processNextBatch(targetBookmarks, config, progress, tempGraph) {
     window.aiService.analyzeBookmarks(currentBatch).then(function(result) {
       var newAiData = result; // AIService 已经帮我们 parse 好了
       if (newAiData.nodes && newAiData.nodes.length > 0) {
-        tempGraph.nodes = tempGraph.nodes.concat(newAiData.nodes);
-        if (newAiData.edges) {
-          tempGraph.edges = tempGraph.edges.concat(newAiData.edges);
-        }
-        if (newAiData.categories) {
-          var existingCats = new Set(tempGraph.categories.map(function(c) { return c.name; }));
-          newAiData.categories.forEach(function(c) {
-            if (!existingCats.has(c.name)) {
-              tempGraph.categories.push(c);
-              existingCats.add(c.name);
+        var existingNodes = tempGraph.nodes;
+        var existingCategoriesMap = new Map();
+        
+        // 构建已有分类映射
+        tempGraph.categories.forEach(function(c) {
+          existingCategoriesMap.set(c.name, c);
+        });
+
+        newAiData.nodes.forEach(function(newNode) {
+          tempGraph.nodes.push(newNode);
+          
+          if (newNode.category) {
+            // 自动生成 Category 及颜色（如果不存在）
+            if (!existingCategoriesMap.has(newNode.category)) {
+               var hue = Math.floor(Math.random() * 360);
+               var color = 'hsl(' + hue + ', 70%, 50%)';
+               var newCategory = { name: newNode.category, color: color };
+               tempGraph.categories.push(newCategory);
+               existingCategoriesMap.set(newNode.category, newCategory);
             }
-          });
-        }
+            
+            // 自动生成 Edges 基于 Tags 重叠：最多连 5 条，优先连共同标签最多的节点
+            var tagSet = new Set(newNode.tags || []);
+            if (tagSet.size > 0) {
+              var peerScores = [];
+              for (var i = 0; i < existingNodes.length; i++) {
+                var peerNode = existingNodes[i];
+                if (peerNode.id === newNode.id) continue;
+                var sharedTags = (peerNode.tags || []).filter(function(t) { return tagSet.has(t); });
+                if (sharedTags.length > 0) {
+                  peerScores.push({ peer: peerNode, shared: sharedTags });
+                }
+              }
+              // 按共同标签数量降序排序
+              peerScores.sort(function(a, b) { return b.shared.length - a.shared.length; });
+              var edgeLimit = Math.min(5, peerScores.length);
+              for (var j = 0; j < edgeLimit; j++) {
+                tempGraph.edges.push({
+                  source: newNode.id,
+                  target: peerScores[j].peer.id,
+                  relation: peerScores[j].shared.slice(0, 2).join(', ')
+                });
+              }
+            } else if (newNode.category) {
+              // 如果该节点没有 tags （老数据兼容），回退到按 category 连线
+              var peerCount = 0;
+              for (var k = existingNodes.length - 1; k >= 0 && peerCount < 3; k--) {
+                var catPeer = existingNodes[k];
+                if (catPeer.id !== newNode.id && catPeer.category === newNode.category) {
+                  tempGraph.edges.push({ source: newNode.id, target: catPeer.id, relation: '同一主题' });
+                  peerCount++;
+                }
+              }
+            }
+          }
+        });
       }
 
       // 每次拿到新数据立刻在前端通过 D3.js 重新渲染（满足用户的实时反馈需求）
@@ -911,36 +997,25 @@ function performAnalysisSingleRequest(targetBookmarks, isIncremental, deletedIds
     var endpoint = config.apiEndpoint || (defaultProviders[provider] ? defaultProviders[provider].endpoint : 'https://api.deepseek.com');
     var model = config.modelName || (defaultProviders[provider] ? defaultProviders[provider].model : 'deepseek-chat');
 
-    chrome.runtime.sendMessage({
-      action: 'analyzeBookmarksAI',
-      data: {
-        provider: provider,
-        endpoint: endpoint,
-        apiKey: config.apiKey,
-        model: model,
-        bookmarks: bookmarksToAnalyze
-      }
-    }, function(response) {
-      if (chrome.runtime.lastError) {
-        throw new Error(chrome.runtime.lastError.message);
-      }
-
-      if (response && response.success) {
-        if (isIncremental) {
-           finishIncrementalUpdate(currentGraphData, deletedIds, response.data);
-        } else {
-           chrome.storage.local.set({ graphData: response.data }, function() {
-             analyzing = false;
-             analyzeStatusText = '增量图谱生成成功！';
-             updateAnalyzeButton(false, true);
-             loadGraphData();
-             checkSyncStatus();
-           });
-        }
+      if (window.aiService) {
+        window.aiService.analyzeBookmarks(bookmarksToAnalyze).then(function(result) {
+          if (isIncremental) {
+             finishIncrementalUpdate(currentGraphData, deletedIds, result);
+          } else {
+             // 只有少量书签做全量（< 50），直接调用增量合并逻辑生成分类和连线
+             var emptyGraph = { nodes: [], edges: [], categories: [] };
+             finishIncrementalUpdate(emptyGraph, new Set(), result);
+          }
+        }).catch(function(error) {
+          analyzing = false;
+          analyzeStatusText = error.message;
+          updateAnalyzeButton(true);
+        });
       } else {
-        throw new Error(response ? response.error : '未知通信错误');
+        analyzing = false;
+        analyzeStatusText = '错误：AIService 未加载';
+        updateAnalyzeButton(true);
       }
-    });
 
   }).catch(function(error) {
     analyzing = false;
@@ -960,24 +1035,64 @@ function finishIncrementalUpdate(graphData, deletedIds, newAiData) {
     });
   }
   
-  // 增加新节点
-  if (newAiData) {
-     if (newAiData.nodes) {
-       graphData.nodes = graphData.nodes.concat(newAiData.nodes);
-     }
-     if (newAiData.edges) {
-       graphData.edges = (graphData.edges || []).concat(newAiData.edges);
-     }
-     if (newAiData.categories) {
-       graphData.categories = graphData.categories || [];
-       var existingCats = new Set(graphData.categories.map(function(c) { return c.name; }));
-       newAiData.categories.forEach(function(c) {
-          if (!existingCats.has(c.name)) {
-             graphData.categories.push(c);
-             existingCats.add(c.name);
+  // 增加新节点并生成分类与连线
+  if (newAiData && newAiData.nodes && newAiData.nodes.length > 0) {
+     var existingNodes = graphData.nodes;
+     graphData.categories = graphData.categories || [];
+     graphData.edges = graphData.edges || [];
+     
+     var existingCategoriesMap = new Map();
+     graphData.categories.forEach(function(c) {
+       existingCategoriesMap.set(c.name, c);
+     });
+
+     newAiData.nodes.forEach(function(newNode) {
+        graphData.nodes.push(newNode);
+        
+        if (newNode.category) {
+          // 自动生成 Category 及颜色（如果不存在）
+          if (!existingCategoriesMap.has(newNode.category)) {
+             var hue = Math.floor(Math.random() * 360);
+             var color = 'hsl(' + hue + ', 70%, 50%)';
+             var newCategory = { name: newNode.category, color: color };
+             graphData.categories.push(newCategory);
+             existingCategoriesMap.set(newNode.category, newCategory);
           }
-       });
-     }
+          
+            // 自动生成 Edges 基于 Tags 重叠：最多连 5 条，优先连共同标签最多的节点
+          var tagSet = new Set(newNode.tags || []);
+          if (tagSet.size > 0) {
+            var peerScores = [];
+            for (var pi = 0; pi < existingNodes.length; pi++) {
+              var peerNode = existingNodes[pi];
+              if (peerNode.id === newNode.id) continue;
+              var sharedTags = (peerNode.tags || []).filter(function(t) { return tagSet.has(t); });
+              if (sharedTags.length > 0) {
+                peerScores.push({ peer: peerNode, shared: sharedTags });
+              }
+            }
+            peerScores.sort(function(a, b) { return b.shared.length - a.shared.length; });
+            var edgeLimit = Math.min(5, peerScores.length);
+            for (var pj = 0; pj < edgeLimit; pj++) {
+              graphData.edges.push({
+                source: newNode.id,
+                target: peerScores[pj].peer.id,
+                relation: peerScores[pj].shared.slice(0, 2).join(', ')
+              });
+            }
+          } else if (newNode.category) {
+            // 如果该节点没有 tags （老数据兼容），回退到按 category 连线
+            var peerCount = 0;
+            for (var pk = existingNodes.length - 1; pk >= 0 && peerCount < 3; pk--) {
+              var catPeer = existingNodes[pk];
+              if (catPeer.id !== newNode.id && catPeer.category === newNode.category) {
+                graphData.edges.push({ source: newNode.id, target: catPeer.id, relation: '同一主题' });
+                peerCount++;
+              }
+            }
+          }
+        }
+     });
   }
 
   chrome.storage.local.set({ graphData: graphData }, function() {

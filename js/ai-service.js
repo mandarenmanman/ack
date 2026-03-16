@@ -69,43 +69,44 @@ class AIService {
 
     const providerConfig = this.getProviderConfig(aiProvider);
 
-    // 构建书签数据摘要
-    const bookmarkSummary = bookmarks.map((b, i) =>
-      `${i + 1}. ${b.title || '无标题'} - ${b.url || '无 URL'}${b.description ? ' - ' + b.description : ''}`
+    // 构建书签数据摘要（包含 ID 以便 AI 原样返回）
+    const bookmarkSummary = bookmarks.map((b) =>
+      `[ID:${b.id}] ${b.title || '无标题'} - ${b.url || '无 URL'}`
     ).join('\n');
 
-    const prompt = `你是一个知识图谱分析专家。请分析以下书签列表，提取主题分类和关联关系。
+    // 建立 ID → 原始书签的映射，用于合并 AI 返回的语义字段
+    const bookmarkMap = new Map(bookmarks.map(b => [String(b.id), b]));
+
+
+    const prompt = `你是一个知识图谱构建专家。请阅读以下书签列表，利用“宏观分类+微观标签”的结构提取其语义属性，以便后续生成网状关联。
 
 书签列表：
 ${bookmarkSummary}
 
 请完成以下任务：
-1. 识别每个书签的主要主题分类（如：技术、新闻、娱乐、购物、学习等）
-2. 找出书签之间的关联关系（如：同一主题、相关技术、互补资源等）
-3. 生成知识图谱的节点和边数据
+1. 核心分类 (category)：识别宏观领域（如：前端开发、人工智能、商业、设计、效率工具等）。尽量将相似的书签归为同一个大类。
+2. 子领域 (sub_domain)：提取1-2个词的细分领域（例如分类是"前端开发"，子领域可能是"React"或"性能优化"）。
+3. 核心实体标签 (tags)：提取3-5个专有名词或核心技术概念（如：LangChain, 知识图谱, SVG动画）。
 
-请严格返回以下 JSON 格式（不要有其他说明文字）：
+请严格返回以下 JSON 格式（绝对不要输出任何 markdown 标记、\`\`\`json 或其他说明文字，只输出合法的纯 JSON 字符串）：
 {
-  "nodes": [
-    {"id": "书签 ID 或 URL", "label": "显示名称", "category": "分类名称", "url": "原始 URL"}
-  ],
-  "edges": [
-    {"source": "源节点 ID", "target": "目标节点 ID", "relation": "关系描述"}
-  ],
-  "categories": [
-    {"name": "分类名", "color": "十六进制颜色值"}
+  "nodes":[
+    {
+      "id": "此处必须原样返回传入的书签ID",
+      "category": "分类名称",
+      "sub_domain": "子领域",
+      "tags":["标签1", "标签2", "标签3"]
+    }
   ]
 }
 
 注意：
-- nodes 数组中的每个节点代表一个书签
-- edges 数组描述节点间的关系，只连接有明确关联的节点
-- categories 定义分类及其显示颜色
-- 如果两个书签属于同一主题或有关联，就建立一条边
-- 关系类型包括："同一主题"、"相关技术"、"互补资源"、"上下游"、"替代品"`;
+- nodes 数组中的每个节点代表一个书签。
+- 只需返回上述推导出的分类和标签字段，严禁在结果中包含标题、URL或摘要等冗余信息。
+- 你生成的 tags 数组必须精准，后续系统将基于重叠的 tags 自动连接节点。`;
 
     const messages = [
-      { role: 'system', content: '你是一个专业的知识图谱构建助手，擅长从信息中提取结构化的关系数据。请严格返回 JSON 格式，不要有任何额外说明。' },
+      { role: 'system', content: '你是一个专业的书签分类引擎，擅长将零散信息聚合到统一的主题下。请严格返回 JSON 格式，不要有任何额外说明。' },
       { role: 'user', content: prompt }
     ];
 
@@ -116,7 +117,22 @@ ${bookmarkSummary}
       content = await this.callOpenAICompatible(messages, providerConfig, apiKey);
     }
 
-    return this.parseAIResponse(content);
+    const result = this.parseAIResponse(content);
+
+    // 将 AI 返回的语义字段（category/sub_domain/tags）与原始书签数据合并
+    // 确保每个节点都有 label 和 url，以支持图谱显示与点击打开
+    if (result && result.nodes) {
+      result.nodes = result.nodes.map(node => {
+        const original = bookmarkMap.get(String(node.id));
+        return {
+          ...node,
+          label: original ? (original.title || '未命名') : (node.label || String(node.id)),
+          url: original ? (original.url || '') : (node.url || '')
+        };
+      });
+    }
+
+    return result;
   }
 
   // 统一解析 AI 返回的 JSON 字符串

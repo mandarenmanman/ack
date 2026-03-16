@@ -116,14 +116,18 @@
 
       <!-- Tooltip -->
       <div id="nodeTooltip" class="absolute pointer-events-none opacity-0 transition-opacity duration-200 z-50">
-        <div class="bg-slate-800/95 backdrop-blur-sm border border-cyan-500/30 rounded-xl p-4 shadow-2xl shadow-cyan-500/10 max-w-xs">
-          <div class="tooltip-title text-cyan-400 font-semibold mb-2"></div>
-          <div class="tooltip-url text-slate-400 text-xs mb-2 truncate"></div>
-          <div class="flex items-center gap-2 text-xs">
-            <span class="text-slate-500">分类:</span>
-            <span class="tooltip-category text-slate-300"></span>
+        <div class="bg-slate-800/95 backdrop-blur-sm border border-cyan-500/30 rounded-xl p-4 shadow-2xl shadow-cyan-500/10 w-72">
+          <div class="tooltip-title text-cyan-400 font-semibold mb-1 leading-snug"></div>
+          <div class="tooltip-summary text-slate-300 text-xs italic mb-2 leading-snug hidden"></div>
+          <div class="tooltip-url text-slate-500 text-xs mb-3 truncate"></div>
+          <div class="flex flex-wrap gap-1 mb-2 tooltip-tags-container hidden">
           </div>
-          <div class="flex items-center gap-2 text-xs mt-1">
+          <div class="flex items-center gap-3 text-xs flex-wrap">
+            <span class="flex items-center gap-1"><span class="text-slate-500">分类:</span><span class="tooltip-category text-slate-300"></span></span>
+            <span class="tooltip-subdomain-wrap flex items-center gap-1 hidden"><span class="text-slate-500">子域:</span><span class="tooltip-subdomain text-purple-400"></span></span>
+            <span class="tooltip-format-wrap flex items-center gap-1 hidden"><span class="text-slate-500">形态:</span><span class="tooltip-format text-yellow-400"></span></span>
+          </div>
+          <div class="flex items-center gap-2 text-xs mt-1.5">
             <span class="text-slate-500">连接数:</span>
             <span class="tooltip-connections text-cyan-400 font-bold"></span>
           </div>
