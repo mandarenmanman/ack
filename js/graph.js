@@ -46,6 +46,14 @@ function initPage() {
   if (goToSettingsBtn) goToSettingsBtn.addEventListener('click', openSettings);
   if (analyzeBtn) analyzeBtn.addEventListener('click', doAnalyzeFull);
 
+  var pauseBtn = document.getElementById('pauseAnalysis');
+  if (pauseBtn) pauseBtn.addEventListener('click', function() {
+    analyzing = false;
+    analyzeStatusText = '已暂停 — 进度已保存，再次点击分析可继续';
+    updateAnalyzeButton(false, false);
+    checkSyncStatus();
+  });
+
   // 页面加载时先获取书签总数
   loadBookmarkCount();
   loadRightSidebarStats();
@@ -674,6 +682,39 @@ function checkSyncStatus() {
   });
 }
 
+function showConfirm(message) {
+  return new Promise(function(resolve) {
+    var modal = document.getElementById('customModal');
+    var container = document.getElementById('modalContainer');
+    var messageEl = document.getElementById('modalMessage');
+    var confirmBtn = document.getElementById('modalConfirm');
+    var cancelBtn = document.getElementById('modalCancel');
+
+    messageEl.textContent = message;
+    modal.classList.remove('hidden');
+    
+    // 强制重绘以触发动画
+    setTimeout(function() {
+      container.classList.remove('scale-95', 'opacity-0');
+      container.classList.add('scale-100', 'opacity-100');
+    }, 10);
+
+    function close(result) {
+      container.classList.remove('scale-100', 'opacity-100');
+      container.classList.add('scale-95', 'opacity-0');
+      setTimeout(function() {
+        modal.classList.add('hidden');
+        confirmBtn.onclick = null;
+        cancelBtn.onclick = null;
+        resolve(result);
+      }, 200);
+    }
+
+    confirmBtn.onclick = function() { close(true); };
+    cancelBtn.onclick = function() { close(false); };
+  });
+}
+
 function doAnalyzeFull() {
   if (analyzing) return;
   
@@ -681,23 +722,34 @@ function doAnalyzeFull() {
     var progress = result.analysisProgress;
     var tempGraph = result.tempGraphData;
 
-    if (progress && tempGraph && progress.currentIndex < progress.total) {
-      if (confirm('检测到上次有未完成的分析任务（进度 ' + progress.offsetCount + progress.currentIndex + '/' + progress.absoluteTotal + '），是否继续执行？\n点击"确定"继续，点击"取消"重新开始。')) {
-        fetchBookmarks().then(function(bookmarks) {
-           resumeBatchAnalysis(bookmarks, progress, tempGraph);
+    var startNew = function() {
+      showConfirm('这将清空现有图谱数据，采用分批处理消耗Token进行全量分析。\n整个过程可能持续几分钟，确认继续吗？').then(function(confirmed) {
+        if (!confirmed) return;
+        
+        chrome.storage.local.remove(['analysisProgress', 'tempGraphData'], function() {
+          fetchBookmarks().then(function(bookmarks) {
+            startBatchAnalysis(bookmarks);
+          });
         });
-        return;
-      }
-    }
-    
-    if(!confirm('这将清空现有图谱数据，采用分批处理消耗Token进行全量分析。\n整个过程可能持续几分钟，确认继续吗？')) return;
-    
-    // 清空历史记录并从头开始
-    chrome.storage.local.remove(['analysisProgress', 'tempGraphData'], function() {
-      fetchBookmarks().then(function(bookmarks) {
-        startBatchAnalysis(bookmarks);
       });
-    });
+    };
+
+    if (progress && tempGraph && progress.currentIndex < progress.total) {
+      var currentDone = (parseInt(progress.offsetCount) || 0) + progress.currentIndex;
+      var totalToDone = parseInt(progress.absoluteTotal) || progress.total;
+      
+      showConfirm('检测到上次有未完成的分析任务（进度 ' + currentDone + '/' + totalToDone + '），是否继续执行？\n点击"确定"继续，点击"取消"重新开始。').then(function(resume) {
+        if (resume) {
+          fetchBookmarks().then(function(bookmarks) {
+            resumeBatchAnalysis(bookmarks, progress, tempGraph);
+          });
+        } else {
+          startNew();
+        }
+      });
+    } else {
+      startNew();
+    }
   });
 }
 
@@ -731,9 +783,9 @@ function startBatchAnalysis(targetBookmarks) {
       return;
     }
 
-    var batchSize = config.batchSize || 50;
+    var batchSize = parseInt(config.batchSize) || 50;
     var total = targetBookmarks.length;
-    var initialProgress = { currentIndex: 0, total: total, batchSize: batchSize };
+    var initialProgress = { currentIndex: 0, total: total };
     var initialGraphData = { nodes: [], edges: [], categories: [] };
 
     hideEmptyState(); // 全量分析开始，直接进入纯净图谱加载状态
@@ -827,7 +879,8 @@ function processNextBatch(targetBookmarks, config, progress, tempGraph) {
     return;
   }
 
-  var batchEnd = Math.min(progress.currentIndex + progress.batchSize, progress.total);
+  var batchSize = parseInt(config.batchSize) || 50;
+  var batchEnd = Math.min(progress.currentIndex + batchSize, progress.total);
   var currentBatch = targetBookmarks.slice(progress.currentIndex, batchEnd);
 
   var displayCurrent = (progress.offsetCount || 0) + progress.currentIndex;
@@ -1126,7 +1179,11 @@ function updateAnalyzeButton(isError, isSuccess) {
     statusIcon.className = 'fas fa-circle-notch fa-spin text-cyan-400 font-bold';
     textStr.textContent = analyzeStatusText;
     textStr.className = 'text-slate-300 truncate';
+    var pauseBtn = document.getElementById('pauseAnalysis');
+    if (pauseBtn) pauseBtn.classList.remove('hidden');
   } else {
+    var pauseBtn2 = document.getElementById('pauseAnalysis');
+    if (pauseBtn2) pauseBtn2.classList.add('hidden');
     analyzeBtn.disabled = false;
     analyzeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
     if (syncBtn) {

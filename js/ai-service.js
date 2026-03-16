@@ -69,9 +69,9 @@ class AIService {
 
     const providerConfig = this.getProviderConfig(aiProvider);
 
-    // 构建书签数据摘要（包含 ID 以便 AI 原样返回）
+    // 构建书签数据摘要，格式为：书签ID|标题 - URL
     const bookmarkSummary = bookmarks.map((b) =>
-      `[ID:${b.id}] ${b.title || '无标题'} - ${b.url || '无 URL'}`
+      `${b.id}|${b.title || '无标题'} - ${b.url || '无 URL'}`
     ).join('\n');
 
     // 建立 ID → 原始书签的映射，用于合并 AI 返回的语义字段
@@ -92,7 +92,7 @@ ${bookmarkSummary}
 {
   "nodes":[
     {
-      "id": "此处必须原样返回传入的书签ID",
+      "id": "书签的ID（即每行第一个 | 符号前的数字，原样返回，只返回数字部分）",
       "category": "分类名称",
       "sub_domain": "子领域",
       "tags":["标签1", "标签2", "标签3"]
@@ -123,10 +123,13 @@ ${bookmarkSummary}
     // 确保每个节点都有 label 和 url，以支持图谱显示与点击打开
     if (result && result.nodes) {
       result.nodes = result.nodes.map(node => {
-        const original = bookmarkMap.get(String(node.id));
+        // 容错处理：AI 可能返回“ID:3”、“[ID:3]”等格式，统一裁削成纯数字
+        const cleanId = String(node.id).replace(/^\[?ID:?\]?/i, '').replace(/\|.*/, '').trim();
+        const original = bookmarkMap.get(cleanId);
         return {
           ...node,
-          label: original ? (original.title || '未命名') : (node.label || String(node.id)),
+          id: cleanId,  // 将 ID 差异化回原始格式
+          label: original ? (original.title || '未命名') : (node.label || cleanId),
           url: original ? (original.url || '') : (node.url || '')
         };
       });
@@ -198,6 +201,7 @@ ${bookmarkSummary}
       body: JSON.stringify({
         model: providerConfig.model,
         max_tokens: 4096,
+        thinking: { type: 'disabled' },
         system: systemMessage?.content || '',
         messages: userMessages
       })

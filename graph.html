@@ -100,7 +100,10 @@
         
         <div id="analyzeStatus" class="hidden flex items-center gap-2 p-2 bg-slate-800 rounded-lg text-xs">
           <i class="fas fa-circle-notch fa-spin text-cyan-400 font-bold"></i>
-          <span class="text-slate-300"></span>
+          <span class="text-slate-300 flex-1 truncate"></span>
+          <button id="pauseAnalysis" class="hidden ml-auto px-2 py-0.5 bg-orange-500/20 hover:bg-orange-500/40 text-orange-400 border border-orange-500/30 rounded text-xs transition whitespace-nowrap">
+            <i class="fas fa-pause mr-1"></i>暂停
+          </button>
         </div>
 
         <button id="openSettings" class="w-full py-2.5 px-3 bg-slate-700 hover:bg-slate-600 text-white text-xs font-medium rounded-lg transition flex items-center justify-center gap-2">
@@ -144,6 +147,24 @@
             <i class="fas fa-cog"></i>
             检查 AI 配置
           </button>
+        </div>
+      </div>
+
+      <!-- 自定义确认弹窗 -->
+      <div id="customModal" class="fixed inset-0 flex items-center justify-center z-[100] hidden">
+        <div class="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"></div>
+        <div class="relative bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-2xl w-full max-w-sm mx-4 transform transition-all scale-95 opacity-0 duration-200" id="modalContainer">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400">
+              <i class="fas fa-question-circle text-xl"></i>
+            </div>
+            <h3 class="text-lg font-semibold text-white">确认操作</h3>
+          </div>
+          <p id="modalMessage" class="text-slate-300 text-sm mb-6 leading-relaxed"></p>
+          <div class="flex gap-3">
+            <button id="modalCancel" class="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-xl transition">取消</button>
+            <button id="modalConfirm" class="flex-1 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-medium rounded-xl shadow-lg shadow-cyan-500/20 transition">确定</button>
+          </div>
         </div>
       </div>
     </main>
