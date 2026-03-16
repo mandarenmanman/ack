@@ -7,6 +7,10 @@ var g = null;
 var width, height;
 var activeCategories = new Set();
 
+// 两级图谱状态
+var expandedCategory = null;  // 当前展开的分类名，null 表示概览模式
+var fullGraphData = null;     // 完整的原始图谱数据引用
+
 // 颜色分配
 var categoryColors = {};
 var colorPalette = [
@@ -127,6 +131,9 @@ function showLoading() {
 }
 
 function initGraph(data) {
+  fullGraphData = data;  // 保存完整数据引用
+  expandedCategory = null;  // 重置为概览模式
+
   var graphContainer = document.getElementById('graph');
   graphContainer.innerHTML = '';
 
@@ -138,52 +145,258 @@ function initGraph(data) {
   updateStats(data);
   createCategoryFilters(data);
 
-  svg = d3.select('#graph')
-    .append('svg')
-    .attr('width', width)
-    .attr('height', height)
-    .attr('viewBox', [0, 0, width, height]);
+  // 默认渲染分类概览
+  renderCategoryOverview(data);
+}
 
-  var zoom = d3.zoom()
-    .scaleExtent([0.1, 4])
-    .on('zoom', function(event) {
-      g.attr('transform', event.transform);
-    });
+// ========== 分类概览模式：只渲染分类聚合节点 ==========
+function renderCategoryOverview(data) {
+  expandedCategory = null;
+  setupSvg();
 
-  svg.call(zoom);
-  g = svg.append('g');
+  // 聚合：按 category 分组，生成分类节点
+  var categoryMap = {};
+  (data.nodes || []).forEach(function(node) {
+    var cat = node.category || '未分类';
+    if (!categoryMap[cat]) {
+      categoryMap[cat] = { name: cat, count: 0 };
+    }
+    categoryMap[cat].count++;
+  });
 
-  // 创建箭头标记
-  svg.append('defs').selectAll('marker')
-    .data(['end'])
-    .join('marker')
-    .attr('id', 'arrow')
-    .attr('viewBox', '0 -5 10 10')
-    .attr('refX', 25)
-    .attr('refY', 0)
-    .attr('markerWidth', 6)
-    .attr('markerHeight', 6)
-    .attr('orient', 'auto')
-    .append('path')
-    .attr('fill', '#475569')
-    .attr('d', 'M0,-5L10,0L0,5');
+  var categoryNames = Object.keys(categoryMap);
+  var catNodes = categoryNames.map(function(cat) {
+    return {
+      id: 'cat_' + cat,
+      label: cat,
+      category: cat,
+      count: categoryMap[cat].count,
+      isCategoryNode: true,
+      x: width / 2 + (Math.random() - 0.5) * 300,
+      y: height / 2 + (Math.random() - 0.5) * 300
+    };
+  });
 
-  var nodes = data.nodes.map(function(node) {
+  // 分类之间的连线：如果两个分类的书签之间存在 edge，就连一条，权重为跨分类 edge 数
+  var catEdgeMap = {};
+  var nodeCategory = {};
+  (data.nodes || []).forEach(function(n) { nodeCategory[String(n.id)] = n.category || '未分类'; });
+
+  (data.edges || []).forEach(function(e) {
+    var sId = typeof e.source === 'object' ? String(e.source.id) : String(e.source);
+    var tId = typeof e.target === 'object' ? String(e.target.id) : String(e.target);
+    var sCat = nodeCategory[sId];
+    var tCat = nodeCategory[tId];
+    if (sCat && tCat && sCat !== tCat) {
+      var key = [sCat, tCat].sort().join('|||');
+      catEdgeMap[key] = (catEdgeMap[key] || 0) + 1;
+    }
+  });
+
+  var catLinks = Object.keys(catEdgeMap).map(function(key) {
+    var parts = key.split('|||');
+    return {
+      source: 'cat_' + parts[0],
+      target: 'cat_' + parts[1],
+      weight: catEdgeMap[key],
+      relation: catEdgeMap[key] + ' 条关联'
+    };
+  });
+
+  // 力仿真
+  var maxCount = Math.max.apply(null, catNodes.map(function(n) { return n.count; })) || 1;
+
+  simulation = d3.forceSimulation(catNodes)
+    .force('link', d3.forceLink(catLinks).id(function(d) { return d.id; }).distance(200))
+    .force('charge', d3.forceManyBody().strength(-800))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collide', d3.forceCollide(function(d) { return getNodeRadius(d.count, maxCount) + 20; }).strength(0.8));
+
+  // 绘制连线
+  var link = g.append('g')
+    .attr('class', 'links')
+    .selectAll('g')
+    .data(catLinks)
+    .join('g')
+    .attr('class', 'link');
+
+  link.append('line')
+    .attr('stroke', '#475569')
+    .attr('stroke-width', function(d) { return Math.min(1 + d.weight * 0.5, 6); })
+    .attr('stroke-opacity', 0.6);
+
+  link.append('text')
+    .attr('class', 'link-label')
+    .attr('text-anchor', 'middle')
+    .attr('dy', -8)
+    .attr('fill', '#64748b')
+    .attr('font-size', '10px')
+    .text(function(d) { return d.relation; });
+
+  // 绘制分类节点
+  var node = g.append('g')
+    .attr('class', 'nodes')
+    .selectAll('g')
+    .data(catNodes)
+    .join('g')
+    .attr('class', 'node')
+    .style('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', dragstarted)
+      .on('drag', dragged)
+      .on('end', dragended));
+
+  // 分类节点圆圈 — 大小按书签数量缩放
+  node.append('circle')
+    .attr('r', function(d) { return getNodeRadius(d.count, maxCount); })
+    .attr('fill', function(d) { return categoryColors[d.category] || '#64748b'; })
+    .attr('stroke', '#1e293b')
+    .attr('stroke-width', 3)
+    .attr('fill-opacity', 0.85)
+    .style('filter', 'drop-shadow(0 0 12px currentColor)');
+
+  // 分类名称
+  node.append('text')
+    .attr('dy', -4)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#ffffff')
+    .attr('font-size', '13px')
+    .attr('font-weight', '700')
+    .text(function(d) { return truncateText(d.label, 8); })
+    .style('pointer-events', 'none')
+    .style('text-shadow', '0 1px 4px rgba(0,0,0,0.9)');
+
+  // 书签数量
+  node.append('text')
+    .attr('dy', 14)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#94a3b8')
+    .attr('font-size', '11px')
+    .text(function(d) { return d.count + ' 个书签'; })
+    .style('pointer-events', 'none');
+
+  // 点击分类节点 → 展开该分类
+  node.on('click', function(event, d) {
+    event.stopPropagation();
+    renderCategoryDetail(d.category);
+  });
+
+  // 悬停提示
+  var tooltip = document.getElementById('nodeTooltip');
+  node.on('mouseover', function(event, d) {
+    tooltip.querySelector('.tooltip-title').textContent = d.label;
+    tooltip.querySelector('.tooltip-url').textContent = '包含 ' + d.count + ' 个书签';
+    tooltip.querySelector('.tooltip-category').textContent = d.category;
+    tooltip.querySelector('.tooltip-connections').textContent = catLinks.filter(function(l) {
+      var sId = typeof l.source === 'object' ? l.source.id : l.source;
+      var tId = typeof l.target === 'object' ? l.target.id : l.target;
+      return sId === d.id || tId === d.id;
+    }).length;
+    tooltip.querySelector('.tooltip-summary').classList.add('hidden');
+    tooltip.querySelector('.tooltip-subdomain-wrap').classList.add('hidden');
+    tooltip.querySelector('.tooltip-format-wrap').classList.add('hidden');
+    tooltip.querySelector('.tooltip-tags-container').classList.add('hidden');
+    tooltip.classList.remove('opacity-0');
+    tooltip.classList.add('opacity-100');
+  });
+  node.on('mousemove', function(event) {
+    tooltip.style.left = (event.pageX + 15) + 'px';
+    tooltip.style.top = (event.pageY - 10) + 'px';
+  });
+  node.on('mouseout', function() {
+    tooltip.classList.add('opacity-0');
+    tooltip.classList.remove('opacity-100');
+  });
+
+  // tick
+  simulation.on('tick', function() {
+    link.select('line')
+      .attr('x1', function(d) { return d.source.x; })
+      .attr('y1', function(d) { return d.source.y; })
+      .attr('x2', function(d) { return d.target.x; })
+      .attr('y2', function(d) { return d.target.y; });
+    link.select('text')
+      .attr('x', function(d) { return (d.source.x + d.target.x) / 2; })
+      .attr('y', function(d) { return (d.source.y + d.target.y) / 2; });
+    node.attr('transform', function(d) { return 'translate(' + d.x + ', ' + d.y + ')'; });
+  });
+
+  window.currentNodes = catNodes;
+  window.currentLinks = catLinks;
+}
+
+// ========== 分类详情模式：展开某个分类的所有书签节点 ==========
+function renderCategoryDetail(categoryName) {
+  if (!fullGraphData) return;
+  expandedCategory = categoryName;
+  setupSvg();
+
+  // 筛选该分类下的书签节点
+  var catNodes = fullGraphData.nodes.filter(function(n) {
+    return (n.category || '未分类') === categoryName;
+  });
+  var catNodeIds = new Set(catNodes.map(function(n) { return String(n.id); }));
+
+  var nodes = catNodes.map(function(node) {
     return Object.assign({}, node, {
-      x: width / 2 + (Math.random() - 0.5) * 200,
-      y: height / 2 + (Math.random() - 0.5) * 200,
-      vx: 0,
-      vy: 0
+      x: width / 2 + (Math.random() - 0.5) * 300,
+      y: height / 2 + (Math.random() - 0.5) * 300
     });
   });
 
-  var links = data.edges || [];
+  // 筛选该分类内部的连线
+  var links = (fullGraphData.edges || []).filter(function(e) {
+    var sId = typeof e.source === 'object' ? String(e.source.id) : String(e.source);
+    var tId = typeof e.target === 'object' ? String(e.target.id) : String(e.target);
+    return catNodeIds.has(sId) && catNodeIds.has(tId);
+  }).map(function(e) {
+    return {
+      source: typeof e.source === 'object' ? String(e.source.id) : String(e.source),
+      target: typeof e.target === 'object' ? String(e.target.id) : String(e.target),
+      relation: e.relation
+    };
+  });
 
+  // 添加返回按钮
+  var backBtn = g.append('g')
+    .attr('class', 'back-button')
+    .style('cursor', 'pointer')
+    .attr('transform', 'translate(30, 30)');
+
+  backBtn.append('rect')
+    .attr('rx', 8).attr('ry', 8)
+    .attr('width', 140).attr('height', 36)
+    .attr('fill', categoryColors[categoryName] || '#475569')
+    .attr('fill-opacity', 0.2)
+    .attr('stroke', categoryColors[categoryName] || '#475569')
+    .attr('stroke-opacity', 0.5);
+
+  backBtn.append('text')
+    .attr('x', 70).attr('y', 22)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#e2e8f0')
+    .attr('font-size', '13px')
+    .attr('font-weight', '600')
+    .text('← 返回概览');
+
+  backBtn.on('click', function() {
+    renderCategoryOverview(fullGraphData);
+  });
+
+  // 分类标题
+  g.append('text')
+    .attr('x', 190).attr('y', 26)
+    .attr('fill', categoryColors[categoryName] || '#94a3b8')
+    .attr('font-size', '16px')
+    .attr('font-weight', '700')
+    .text(categoryName + ' (' + nodes.length + ' 个书签)');
+
+  // 力仿真
   simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(150))
-    .force('charge', d3.forceManyBody().strength(-500))
+    .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(120))
+    .force('charge', d3.forceManyBody().strength(-400))
     .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collide', d3.forceCollide(30).strength(0.7));
+    .force('collide', d3.forceCollide(25).strength(0.7));
 
   // 绘制连线
   var link = g.append('g')
@@ -206,7 +419,7 @@ function initGraph(data) {
     .attr('font-size', '9px')
     .text(function(d) { return truncateText(d.relation || '', 20); });
 
-  // 绘制节点
+  // 绘制书签节点
   var node = g.append('g')
     .attr('class', 'nodes')
     .selectAll('g')
@@ -218,75 +431,56 @@ function initGraph(data) {
       .on('drag', dragged)
       .on('end', dragended));
 
-  // 节点圆圈 - 添加光晕效果
   node.append('circle')
-    .attr('r', 20)
+    .attr('r', 18)
     .attr('fill', function(d) { return categoryColors[d.category] || '#64748b'; })
     .attr('stroke', '#1e293b')
-    .attr('stroke-width', 3)
-    .style('filter', 'drop-shadow(0 0 8px currentColor)');
+    .attr('stroke-width', 2.5)
+    .style('filter', 'drop-shadow(0 0 6px currentColor)');
 
-  // 节点标签
   node.append('text')
-    .attr('dy', 35)
+    .attr('dy', 32)
     .attr('text-anchor', 'middle')
     .attr('fill', '#e2e8f0')
     .attr('font-size', '11px')
     .attr('font-weight', '500')
-    .attr('text-shadow', '0 1px 3px rgba(0,0,0,0.8)')
+    .style('text-shadow', '0 1px 3px rgba(0,0,0,0.8)')
     .text(function(d) { return truncateText(d.label, 10); })
     .style('pointer-events', 'none');
 
-  // 节点点击事件
+  // 点击书签节点 → 打开 URL
   node.on('click', function(event, d) {
     if (d.url) chrome.tabs.create({ url: d.url });
   });
 
-  // 节点悬停事件
+  // 悬停提示（完整版，含 tags/sub_domain 等）
   var tooltip = document.getElementById('nodeTooltip');
   var nodeConnections = {};
-  links.forEach(function(link) {
-    var sourceId = typeof link.source === 'object' ? link.source.id : link.source;
-    var targetId = typeof link.target === 'object' ? link.target.id : link.target;
-    nodeConnections[sourceId] = (nodeConnections[sourceId] || 0) + 1;
-    nodeConnections[targetId] = (nodeConnections[targetId] || 0) + 1;
+  links.forEach(function(l) {
+    var sId = typeof l.source === 'object' ? l.source.id : l.source;
+    var tId = typeof l.target === 'object' ? l.target.id : l.target;
+    nodeConnections[sId] = (nodeConnections[sId] || 0) + 1;
+    nodeConnections[tId] = (nodeConnections[tId] || 0) + 1;
   });
 
   node.on('mouseover', function(event, d) {
-    var connectionCount = nodeConnections[d.id] || 0;
     tooltip.querySelector('.tooltip-title').textContent = d.label || '未命名';
     tooltip.querySelector('.tooltip-url').textContent = d.url || '无 URL';
     tooltip.querySelector('.tooltip-category').textContent = d.category || '未分类';
-    tooltip.querySelector('.tooltip-connections').textContent = connectionCount;
+    tooltip.querySelector('.tooltip-connections').textContent = nodeConnections[d.id] || 0;
 
-    // Summary (if exists)
     var summaryEl = tooltip.querySelector('.tooltip-summary');
-    if (d.summary) {
-      summaryEl.textContent = d.summary;
-      summaryEl.classList.remove('hidden');
-    } else {
-      summaryEl.classList.add('hidden');
-    }
+    if (d.summary) { summaryEl.textContent = d.summary; summaryEl.classList.remove('hidden'); }
+    else { summaryEl.classList.add('hidden'); }
 
-    // Sub-domain
     var subDomainWrap = tooltip.querySelector('.tooltip-subdomain-wrap');
-    if (d.sub_domain) {
-      tooltip.querySelector('.tooltip-subdomain').textContent = d.sub_domain;
-      subDomainWrap.classList.remove('hidden');
-    } else {
-      subDomainWrap.classList.add('hidden');
-    }
+    if (d.sub_domain) { tooltip.querySelector('.tooltip-subdomain').textContent = d.sub_domain; subDomainWrap.classList.remove('hidden'); }
+    else { subDomainWrap.classList.add('hidden'); }
 
-    // Format
     var formatWrap = tooltip.querySelector('.tooltip-format-wrap');
-    if (d.format) {
-      tooltip.querySelector('.tooltip-format').textContent = d.format;
-      formatWrap.classList.remove('hidden');
-    } else {
-      formatWrap.classList.add('hidden');
-    }
+    if (d.format) { tooltip.querySelector('.tooltip-format').textContent = d.format; formatWrap.classList.remove('hidden'); }
+    else { formatWrap.classList.add('hidden'); }
 
-    // Tags
     var tagsContainer = tooltip.querySelector('.tooltip-tags-container');
     tagsContainer.innerHTML = '';
     if (d.tags && d.tags.length > 0) {
@@ -297,41 +491,85 @@ function initGraph(data) {
         tagsContainer.appendChild(badge);
       });
       tagsContainer.classList.remove('hidden');
-    } else {
-      tagsContainer.classList.add('hidden');
-    }
+    } else { tagsContainer.classList.add('hidden'); }
 
     tooltip.classList.remove('opacity-0');
     tooltip.classList.add('opacity-100');
   });
-
   node.on('mousemove', function(event) {
     tooltip.style.left = (event.pageX + 15) + 'px';
     tooltip.style.top = (event.pageY - 10) + 'px';
   });
-
   node.on('mouseout', function() {
     tooltip.classList.add('opacity-0');
     tooltip.classList.remove('opacity-100');
   });
 
-  // 更新位置
+  // tick
   simulation.on('tick', function() {
     link.select('line')
       .attr('x1', function(d) { return d.source.x; })
       .attr('y1', function(d) { return d.source.y; })
       .attr('x2', function(d) { return d.target.x; })
       .attr('y2', function(d) { return d.target.y; });
-
     link.select('text')
       .attr('x', function(d) { return (d.source.x + d.target.x) / 2; })
       .attr('y', function(d) { return (d.source.y + d.target.y) / 2; });
-
     node.attr('transform', function(d) { return 'translate(' + d.x + ', ' + d.y + ')'; });
   });
 
   window.currentNodes = nodes;
   window.currentLinks = links;
+}
+
+// ========== 公共工具函数 ==========
+
+// 初始化/重置 SVG 画布
+function setupSvg() {
+  var graphContainer = document.getElementById('graph');
+  graphContainer.innerHTML = '';
+
+  var container = graphContainer.parentElement;
+  width = container.clientWidth;
+  height = container.clientHeight;
+
+  if (simulation) { simulation.stop(); simulation = null; }
+
+  svg = d3.select('#graph')
+    .append('svg')
+    .attr('width', width)
+    .attr('height', height)
+    .attr('viewBox', [0, 0, width, height]);
+
+  var zoom = d3.zoom()
+    .scaleExtent([0.1, 4])
+    .on('zoom', function(event) {
+      g.attr('transform', event.transform);
+    });
+
+  svg.call(zoom);
+  g = svg.append('g');
+
+  // 箭头标记
+  svg.append('defs').selectAll('marker')
+    .data(['end'])
+    .join('marker')
+    .attr('id', 'arrow')
+    .attr('viewBox', '0 -5 10 10')
+    .attr('refX', 25)
+    .attr('refY', 0)
+    .attr('markerWidth', 6)
+    .attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('fill', '#475569')
+    .attr('d', 'M0,-5L10,0L0,5');
+}
+
+// 根据书签数量计算分类节点半径
+function getNodeRadius(count, maxCount) {
+  var minR = 30, maxR = 70;
+  return minR + (count / maxCount) * (maxR - minR);
 }
 
 function assignColors(data) {
@@ -421,6 +659,7 @@ function updateLinkStats(data) {
 
 // 高亮指定节点
 function highlightNode(nodeId) {
+  if (!g) return;
   g.selectAll('.node').each(function(d) {
     var isTarget = d.id === nodeId;
     d3.select(this).attr('opacity', isTarget ? 1 : 0.15);
@@ -474,8 +713,10 @@ function createCategoryFilters(data) {
 }
 
 function filterNodes() {
+  if (!g) return;
   g.selectAll('.node').each(function(d) {
-    var isVisible = activeCategories.has(d.category) || !d.category;
+    var cat = d.isCategoryNode ? d.category : d.category;
+    var isVisible = activeCategories.has(cat) || !cat;
     d3.select(this).attr('opacity', isVisible ? 1 : 0.1);
   });
 
@@ -488,6 +729,11 @@ function filterNodes() {
 }
 
 function resetViewFn() {
+  // 如果在详情模式，先返回概览
+  if (expandedCategory && fullGraphData) {
+    renderCategoryOverview(fullGraphData);
+    return;
+  }
   svg.transition().duration(750).call(
     d3.zoom().transform,
     d3.zoomIdentity,
@@ -520,13 +766,15 @@ function truncateText(text, maxLength) {
 }
 
 window.addEventListener('resize', function() {
-  if (!graphData) return;
+  if (!fullGraphData) return;
   var container = document.getElementById('graph').parentElement;
   width = container.clientWidth;
   height = container.clientHeight;
-  svg.attr('width', width).attr('height', height);
-  simulation.force('center', d3.forceCenter(width / 2, height / 2));
-  simulation.alpha(0.3).restart();
+  if (svg) svg.attr('width', width).attr('height', height);
+  if (simulation) {
+    simulation.force('center', d3.forceCenter(width / 2, height / 2));
+    simulation.alpha(0.3).restart();
+  }
 });
 
 // 加载右侧边栏统计信息（一级目录创建时间和按年份统计）
