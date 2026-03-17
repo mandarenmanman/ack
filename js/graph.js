@@ -892,7 +892,8 @@ function checkSyncStatus() {
     }
 
     if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
-       syncStatusEl.innerHTML = '<div class="flex items-center text-xs text-slate-400"><i class="fas fa-inbox text-slate-500 mr-2"></i>暂无图谱数据</div>';
+       // 仅在同步状态栏显示提示，不触发全屏空状态
+       syncStatusEl.innerHTML = '<div class="flex items-center text-xs text-slate-400"><i class="fas fa-info-circle mr-2"></i>图谱尚未分析，请点击全量分析</div>';
        return;
     }
 

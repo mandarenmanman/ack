@@ -289,6 +289,163 @@ ${bookmarkSummary}
       });
     });
   }
+  // --- 龙虾助手 (AI Agent) 核心扩展 ---
+
+  // 1. 定义可用工具 (Skills)
+  getAvailableTools() {
+    return [
+      {
+        name: 'search_bookmarks',
+        description: '在用户的书签图谱中根据关键词语义搜索相关的书签',
+        parameters: {
+          type: 'object',
+          properties: {
+            keyword: { type: 'string', description: '搜索关键词' }
+          },
+          required: ['keyword']
+        }
+      },
+      {
+        name: 'get_graph_stats',
+        description: '获取当前知识图谱的统计信息（节点数、分类数等）',
+        parameters: { type: 'object', properties: {} }
+      },
+      {
+        name: 'open_url',
+        description: '在浏览器新标签页中打开指定的 URL',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: '要打开的完整 URL' }
+          },
+          required: ['url']
+        }
+      }
+    ];
+  }
+
+  // 2. 执行工具调用
+  async executeTool(toolCall, graphData) {
+    const { name, arguments: argsString } = toolCall;
+    let args;
+    try {
+      args = typeof argsString === 'string' ? JSON.parse(argsString) : argsString;
+    } catch (e) {
+      console.error('解析工具参数失败:', e);
+      return { error: '参数解析失败' };
+    }
+
+    console.log(`执行工具: ${name}`, args);
+
+    if (!graphData || !graphData.nodes) {
+      return { error: '未加载图谱数据' };
+    }
+
+    switch (name) {
+      case 'search_bookmarks': {
+        const keyword = args.keyword.toLowerCase();
+        const results = graphData.nodes.filter(n =>
+          (n.label && n.label.toLowerCase().includes(keyword)) ||
+          (n.tags && n.tags.some(t => t.toLowerCase().includes(keyword))) ||
+          (n.category && n.category.toLowerCase().includes(keyword))
+        ).slice(0, 5);
+        return { success: true, results: results.map(r => ({ title: r.label, url: r.url, category: r.category })) };
+      }
+
+      case 'get_graph_stats': {
+        return {
+          total_nodes: graphData.nodes.length,
+          total_edges: graphData.edges.length,
+          categories: Array.from(new Set(graphData.nodes.map(n => n.category))).filter(Boolean)
+        };
+      }
+
+      case 'open_url': {
+        chrome.tabs.create({ url: args.url });
+        return { success: true, message: `已为您打开：${args.url}` };
+      }
+
+      default:
+        return { error: `未知工具: ${name}` };
+    }
+  }
+
+  // 3. 智能助手聊天接口
+  async chatWithAgent(userMessage, chatHistory = [], graphData = null) {
+    await this.loadConfig();
+    const { apiKey, aiProvider } = this.config;
+    if (!apiKey) throw new Error('请先配置 API Key');
+
+    const providerConfig = this.getProviderConfig(aiProvider);
+    const tools = this.getAvailableTools();
+
+    const messages = [
+      {
+        role: 'system',
+        content: `你是一个集成在书签管理器中的 AI 助手。
+        你可以通过调用工具来查看、搜索和操作用户的书签知识图谱。
+        目前的知识图谱包含 ${graphData ? graphData.nodes.length : 0} 个书签。
+        你的回答应该专业、简洁且优雅。
+        尽量利用搜索工具为用户提供有价值的建议。`
+      },
+      ...chatHistory,
+      { role: 'user', content: userMessage }
+    ];
+
+    const response = await this.callWithTools(messages, tools, providerConfig, apiKey);
+
+    if (response.tool_calls && response.tool_calls.length > 0) {
+      const toolResults = [];
+      const updatedMessages = [...messages, response.message];
+      
+      for (const call of response.tool_calls) {
+        const result = await this.executeTool(call.function, graphData);
+        toolResults.push({
+          tool_call_id: call.id,
+          role: 'tool',
+          name: call.function.name,
+          content: JSON.stringify(result)
+        });
+      }
+
+      const finalMessages = [...updatedMessages, ...toolResults];
+      return await this.callOpenAICompatible(finalMessages, providerConfig, apiKey);
+    }
+
+    return response.content;
+  }
+
+  async callWithTools(messages, tools, providerConfig, apiKey) {
+    const url = providerConfig.endpoint + providerConfig.chatPath;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: providerConfig.model,
+        messages: messages,
+        tools: tools.map(t => ({ type: 'function', function: t })),
+        tool_choice: 'auto'
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`API 请求失败：${response.status} - ${error}`);
+    }
+
+    const data = await response.json();
+    const message = data.choices[0].message;
+
+    return {
+      message: message,
+      content: message.content,
+      tool_calls: message.tool_calls
+    };
+  }
 }
 
 // 导出单例
