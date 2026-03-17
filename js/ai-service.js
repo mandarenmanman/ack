@@ -194,7 +194,6 @@ ${bookmarkSummary}
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        // 阳云兼容接口同时接受两种认证
         'Authorization': `Bearer ${apiKey}`,
         'anthropic-version': '2023-06-01'
       },
@@ -203,7 +202,20 @@ ${bookmarkSummary}
         max_tokens: 4096,
         thinking: { type: 'disabled' },
         system: systemMessage?.content || '',
-        messages: userMessages
+        messages: userMessages.map(m => {
+          // Anthropic /v1/messages 仅支持 user/assistant 角色
+          // 暂将 tool 结果特殊转换为 user 文本，以保证请求合法
+          if (m.role === 'tool') {
+            return {
+              role: 'user',
+              content: `工具 [${m.name}] 返回结果: ${m.content}`
+            };
+          }
+          return {
+            role: m.role === 'assistant' ? 'assistant' : 'user',
+            content: m.content
+          };
+        })
       })
     });
 
@@ -384,7 +396,11 @@ ${bookmarkSummary}
         role: 'system',
         content: `你是一个集成在书签管理器中的 AI 助手。
         你可以通过调用工具来查看、搜索和操作用户的书签知识图谱。
-        目前的知识图谱包含 ${graphData ? graphData.nodes.length : 0} 个书签。
+        内容包含 ${graphData ? graphData.nodes.length : 0} 个分析过的书签。
+        用户输入中可能会使用 @文件夹名 或 #分类名（通过联想输入插入）。
+        - @文件夹：指代浏览器中的某个目录。
+        - #分类名：指代图谱中的某个核心分类。
+        如果用户提到这些标记，请在回答或调用搜索工具时优先考虑对应范围。
         你的回答应该专业、简洁且优雅。
         尽量利用搜索工具为用户提供有价值的建议。`
       },
@@ -398,10 +414,10 @@ ${bookmarkSummary}
     if (response.tool_calls && response.tool_calls.length > 0) {
       const toolResults = [];
       const assistantMessage = response.message;
-      
+
       for (const call of response.tool_calls) {
         const result = await this.executeTool(call.function, graphData);
-        
+
         // 统一工具结果格式 (OpenAI 格式，会在 callOpenAICompatible 中被自动适配)
         toolResults.push({
           role: 'tool',
@@ -412,7 +428,7 @@ ${bookmarkSummary}
       }
 
       const finalMessages = [...messages, assistantMessage, ...toolResults];
-      
+
       // 最终回复调用
       if (providerConfig.chatPath === '/v1/messages') {
         // 如果是 Anthropic，我们调用专用的 callAnthropic 处理系统消息分离
@@ -434,7 +450,7 @@ ${bookmarkSummary}
       // 适配 Anthropic (Claude) 协议格式
       const systemMessage = messages.find(m => m.role === 'system');
       const userMessages = messages.filter(m => m.role !== 'system');
-      
+
       body = {
         model: providerConfig.model,
         max_tokens: 4096,
@@ -476,14 +492,14 @@ ${bookmarkSummary}
     }
 
     const data = await response.json();
-    
+
     // 统一化响应格式
     if (isAnthropicProtocol) {
       // 解析 Anthropic 响应
       const contentBlocks = data.content || [];
       const textBlock = contentBlocks.find(b => b.type === 'text');
       const toolBlocks = contentBlocks.filter(b => b.type === 'tool_use');
-      
+
       return {
         message: { role: 'assistant', content: textBlock ? textBlock.text : '' },
         content: textBlock ? textBlock.text : '',

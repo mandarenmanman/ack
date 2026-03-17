@@ -293,10 +293,18 @@ function renderCategoryOverview(data) {
       var tId = typeof l.target === 'object' ? l.target.id : l.target;
       return sId === d.id || tId === d.id;
     }).length;
-    tooltip.querySelector('.tooltip-summary').classList.add('hidden');
-    tooltip.querySelector('.tooltip-subdomain-wrap').classList.add('hidden');
-    tooltip.querySelector('.tooltip-format-wrap').classList.add('hidden');
-    tooltip.querySelector('.tooltip-tags-container').classList.add('hidden');
+    var summaryEl = tooltip.querySelector('.tooltip-summary');
+    if (summaryEl) summaryEl.classList.add('hidden');
+
+    var subdomainEl = tooltip.querySelector('.tooltip-subdomain-wrap');
+    if (subdomainEl) subdomainEl.classList.add('hidden');
+
+    var formatEl = tooltip.querySelector('.tooltip-format-wrap');
+    if (formatEl) formatEl.classList.add('hidden');
+
+    var tagsEl = tooltip.querySelector('.tooltip-tags-container');
+    if (tagsEl) tagsEl.classList.add('hidden');
+
     tooltip.classList.remove('opacity-0');
     tooltip.classList.add('opacity-100');
   });

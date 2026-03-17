@@ -119,4 +119,141 @@ document.addEventListener('DOMContentLoaded', () => {
       handleSendMessage();
     }
   });
+
+  // 5. @ 和 # 联想功能
+  const suggestionList = document.getElementById('mentionSuggestions');
+  let selectedSuggestionIndex = -1;
+  let currentTrigger = null; // '@' 或 '#'
+
+  const getFolders = async () => {
+    return new Promise((resolve) => {
+      chrome.bookmarks.getTree((nodes) => {
+        const folders = [];
+        const traverse = (list) => {
+          list.forEach(node => {
+            if (node.children) {
+              folders.push(node.title || '未命名');
+              traverse(node.children);
+            }
+          });
+        };
+        traverse(nodes);
+        resolve([...new Set(folders)].filter(f => f && f !== 'root'));
+      });
+    });
+  };
+
+  const getCategories = () => {
+    const data = window.fullGraphData || { nodes: [] };
+    const cats = data.nodes.map(n => n.category).filter(Boolean);
+    return [...new Set(cats)];
+  };
+
+  const showSuggestions = (list, trigger) => {
+    currentTrigger = trigger;
+    if (list.length === 0) {
+      suggestionList.classList.add('hidden');
+      return;
+    }
+
+    suggestionList.innerHTML = list.map((item, index) => `
+      <div class="suggestion-item p-3.5 hover:bg-white/5 cursor-pointer flex items-center justify-between transition-all border-b border-white/5 last:border-0" data-index="${index}" data-value="${item}">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg ${trigger === '@' ? 'bg-yellow-500/10 text-yellow-500' : 'bg-cyan-500/10 text-cyan-400'} flex items-center justify-center">
+            <i class="fas ${trigger === '@' ? 'fa-folder' : 'fa-hashtag'} text-xs"></i>
+          </div>
+          <span class="text-sm font-medium text-slate-200">${item}</span>
+        </div>
+        <i class="fas fa-chevron-right text-[8px] text-slate-600"></i>
+      </div>
+    `).join('');
+
+    suggestionList.classList.remove('hidden');
+    selectedSuggestionIndex = -1;
+  };
+
+  const insertMention = (value) => {
+    const cursorContent = chatInput.value.slice(0, chatInput.selectionStart);
+    const afterContent = chatInput.value.slice(chatInput.selectionStart);
+    const lastTriggerIndex = cursorContent.lastIndexOf(currentTrigger);
+    
+    if (lastTriggerIndex !== -1) {
+      const newContent = cursorContent.slice(0, lastTriggerIndex) + currentTrigger + value + ' ' + afterContent;
+      chatInput.value = newContent;
+      suggestionList.classList.add('hidden');
+      chatInput.focus();
+      // 设置光标位置
+      const newPos = lastTriggerIndex + value.length + 2;
+      chatInput.setSelectionRange(newPos, newPos);
+    }
+  };
+
+  chatInput.addEventListener('input', async (e) => {
+    const value = chatInput.value;
+    const cursor = chatInput.selectionStart;
+    const beforeCursor = value.slice(0, cursor);
+    const words = beforeCursor.split(/\s/);
+    const lastWord = words[words.length - 1];
+
+    if (lastWord.startsWith('@')) {
+      const search = lastWord.slice(1).toLowerCase();
+      const folders = await getFolders();
+      const filtered = folders.filter(f => f.toLowerCase().includes(search));
+      showSuggestions(filtered, '@');
+    } else if (lastWord.startsWith('#')) {
+      const search = lastWord.slice(1).toLowerCase();
+      const categories = getCategories();
+      const filtered = categories.filter(c => c.toLowerCase().includes(search));
+      showSuggestions(filtered, '#');
+    } else {
+      suggestionList.classList.add('hidden');
+    }
+  });
+
+  chatInput.addEventListener('keydown', (e) => {
+    if (suggestionList.classList.contains('hidden')) return;
+
+    const items = suggestionList.querySelectorAll('.suggestion-item');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedSuggestionIndex = (selectedSuggestionIndex + 1) % items.length;
+      updateSuggestionSelection(items);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedSuggestionIndex = (selectedSuggestionIndex - 1 + items.length) % items.length;
+      updateSuggestionSelection(items);
+    } else if (e.key === 'Enter') {
+      if (selectedSuggestionIndex !== -1) {
+        e.preventDefault();
+        insertMention(items[selectedSuggestionIndex].dataset.value);
+      }
+    } else if (e.key === 'Escape') {
+      suggestionList.classList.add('hidden');
+    }
+  });
+
+  const updateSuggestionSelection = (items) => {
+    items.forEach((item, idx) => {
+      if (idx === selectedSuggestionIndex) {
+        item.classList.add('active');
+        item.scrollIntoView({ block: 'nearest' });
+      } else {
+        item.classList.remove('active');
+      }
+    });
+  };
+
+  suggestionList.addEventListener('click', (e) => {
+    const item = e.target.closest('.suggestion-item');
+    if (item) {
+      insertMention(item.dataset.value);
+    }
+  });
+
+  // 点击外部关闭建议列表
+  document.addEventListener('click', (e) => {
+    if (!chatInput.contains(e.target) && !suggestionList.contains(e.target)) {
+      suggestionList.classList.add('hidden');
+    }
+  });
 });
