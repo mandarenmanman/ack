@@ -394,22 +394,32 @@ ${bookmarkSummary}
 
     const response = await this.callWithTools(messages, tools, providerConfig, apiKey);
 
+    // 处理工具调用
     if (response.tool_calls && response.tool_calls.length > 0) {
       const toolResults = [];
-      const updatedMessages = [...messages, response.message];
+      const assistantMessage = response.message;
       
       for (const call of response.tool_calls) {
         const result = await this.executeTool(call.function, graphData);
+        
+        // 统一工具结果格式 (OpenAI 格式，会在 callOpenAICompatible 中被自动适配)
         toolResults.push({
-          tool_call_id: call.id,
           role: 'tool',
+          tool_call_id: call.id,
           name: call.function.name,
           content: JSON.stringify(result)
         });
       }
 
-      const finalMessages = [...updatedMessages, ...toolResults];
-      return await this.callOpenAICompatible(finalMessages, providerConfig, apiKey);
+      const finalMessages = [...messages, assistantMessage, ...toolResults];
+      
+      // 最终回复调用
+      if (providerConfig.chatPath === '/v1/messages') {
+        // 如果是 Anthropic，我们调用专用的 callAnthropic 处理系统消息分离
+        return await this.callAnthropic(finalMessages, providerConfig, apiKey);
+      } else {
+        return await this.callOpenAICompatible(finalMessages, providerConfig, apiKey);
+      }
     }
 
     return response.content;
@@ -417,19 +427,47 @@ ${bookmarkSummary}
 
   async callWithTools(messages, tools, providerConfig, apiKey) {
     const url = providerConfig.endpoint + providerConfig.chatPath;
+    const isAnthropicProtocol = providerConfig.chatPath === '/v1/messages';
+
+    let body;
+    if (isAnthropicProtocol) {
+      // 适配 Anthropic (Claude) 协议格式
+      const systemMessage = messages.find(m => m.role === 'system');
+      const userMessages = messages.filter(m => m.role !== 'system');
+      
+      body = {
+        model: providerConfig.model,
+        max_tokens: 4096,
+        system: systemMessage ? systemMessage.content : '',
+        messages: userMessages.map(m => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.content
+        })),
+        tools: tools.map(t => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.parameters
+        }))
+      };
+    } else {
+      // 标准 OpenAI 协议格式
+      body = {
+        model: providerConfig.model,
+        messages: messages,
+        tools: tools.map(t => ({ type: 'function', function: t })),
+        tool_choice: 'auto'
+      };
+    }
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'Authorization': `Bearer ${apiKey}`,
+        'x-api-key': apiKey, // 兼容原生 Anthropic
+        'anthropic-version': '2023-06-01'
       },
-      body: JSON.stringify({
-        model: providerConfig.model,
-        messages: messages,
-        tools: tools.map(t => ({ type: 'function', function: t })),
-        tool_choice: 'auto'
-      })
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {
@@ -438,13 +476,32 @@ ${bookmarkSummary}
     }
 
     const data = await response.json();
-    const message = data.choices[0].message;
-
-    return {
-      message: message,
-      content: message.content,
-      tool_calls: message.tool_calls
-    };
+    
+    // 统一化响应格式
+    if (isAnthropicProtocol) {
+      // 解析 Anthropic 响应
+      const contentBlocks = data.content || [];
+      const textBlock = contentBlocks.find(b => b.type === 'text');
+      const toolBlocks = contentBlocks.filter(b => b.type === 'tool_use');
+      
+      return {
+        message: { role: 'assistant', content: textBlock ? textBlock.text : '' },
+        content: textBlock ? textBlock.text : '',
+        tool_calls: toolBlocks.map(b => ({
+          id: b.id,
+          type: 'function',
+          function: { name: b.name, arguments: b.input }
+        }))
+      };
+    } else {
+      // 解析 OpenAI 响应
+      const message = data.choices[0].message;
+      return {
+        message: message,
+        content: message.content,
+        tool_calls: message.tool_calls
+      };
+    }
   }
 }
 

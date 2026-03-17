@@ -99,21 +99,22 @@ function loadBookmarkCount() {
 }
 
 function loadGraphData() {
-  console.log('Loading graph data...');
+  console.log('--- loadGraphData Start ---');
   showLoading();
 
   return new Promise(function(resolve) {
     chrome.storage.local.get(['graphData'], function(result) {
-      console.log('Storage result:', result);
-      graphData = result.graphData;
+      console.log('Storage get result:', result);
+      var data = result.graphData;
 
-      if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
-        console.log('No graph data, showing empty state');
+      if (!data || !data.nodes || data.nodes.length === 0) {
+        console.warn('Graph data is empty or missing in storage.');
         showEmptyState();
       } else {
-        console.log('Graph data loaded, initializing with', graphData.nodes.length, 'nodes');
+        console.log('Graph data found, counts:', { nodes: data.nodes.length, edges: (data.edges||[]).length });
+        graphData = data;
         hideEmptyState();
-        initGraph(graphData);
+        initGraph(data);
       }
       resolve();
     });

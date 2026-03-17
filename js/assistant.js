@@ -80,25 +80,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 3. UI 辅助函数
   function appendMessage(text, role) {
     const msgWrapper = document.createElement('div');
-    msgWrapper.className = `flex gap-3 ${role === 'user' ? 'flex-row-reverse' : ''}`;
+    const isUser = role === 'user';
+    msgWrapper.className = `flex gap-3 ${isUser ? 'flex-row-reverse' : ''} items-start`;
 
-    const avatar = role === 'user' 
-      ? `<div class="w-9 h-9 rounded-xl bg-slate-700 flex items-center justify-center flex-shrink-0"><i class="fas fa-user text-[10px] text-slate-300"></i></div>`
-      : `<div class="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0 shadow-sm"><i class="fas ${role === 'error' ? 'fa-exclamation-triangle text-orange-400' : 'fa-robot text-cyan-400'} text-xs"></i></div>`;
+    const avatar = isUser 
+      ? `<div class="w-9 h-9 rounded-xl bg-slate-700 flex items-center justify-center flex-shrink-0 shadow-lg"><i class="fas fa-user text-[10px] text-slate-300"></i></div>`
+      : `<div class="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-cyan-500/30 flex items-center justify-center flex-shrink-0 shadow-sm"><i class="fas ${role === 'error' ? 'fa-exclamation-triangle text-orange-400' : 'fa-robot text-cyan-400'} text-xs"></i></div>`;
 
-    const bubbleClass = role === 'user'
-      ? 'bg-cyan-600 text-white rounded-tr-none border-cyan-500 shadow-lg shadow-cyan-900/20'
+    const bubbleClass = isUser
+      ? 'bg-cyan-600 text-white rounded-tr-none border-cyan-500 shadow-[0_4px_12px_rgba(8,145,178,0.3)]'
       : role === 'error'
         ? 'bg-orange-500/10 text-orange-200 border-orange-500/30'
-        : 'bg-slate-800/40 text-slate-200 border-slate-700 shadow-sm';
+        : 'bg-slate-800/60 text-slate-200 border-slate-700/50 shadow-sm';
 
     msgWrapper.innerHTML = `
       ${avatar}
-      <div class="flex-1 max-w-[85%]">
-        <div class="${bubbleClass} text-sm p-4 rounded-2xl border leading-relaxed whitespace-pre-wrap">${text}</div>
+      <div class="max-w-[85%] flex flex-col ${isUser ? 'items-end' : 'items-start'}">
+        <div class="${bubbleClass} text-sm p-4 rounded-2xl border leading-relaxed whitespace-pre-wrap break-words shadow-md">${text}</div>
       </div>
     `;
 

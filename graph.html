@@ -45,9 +45,7 @@
     }
     
     #app.ai-mode #chatWindow {
-      width: 100%;
       transform: translateX(0);
-      position: relative;
       z-index: 60;
     }
   </style>
@@ -178,7 +176,7 @@
           </div>
 
           <!-- 消息列表 -->
-          <div id="chatMessages" class="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
+          <div id="chatMessages" class="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 scrollbar-thin">
             <div class="flex gap-3">
               <div class="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
                 <i class="fas fa-robot text-xs text-cyan-400"></i>
@@ -203,7 +201,7 @@
           </div>
 
           <!-- 输入区域 -->
-          <div class="p-6 border-t border-slate-800 bg-black/20">
+          <div class="p-6 border-t border-slate-800 bg-black/20 flex-shrink-0">
             <div class="relative">
               <textarea id="chatInput" rows="1" placeholder="发送指令或询问..." class="w-full bg-slate-800/50 border border-slate-700 text-white text-sm rounded-2xl py-4 pl-5 pr-14 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all resize-none shadow-inner"></textarea>
               <button id="sendMessage" class="absolute right-2.5 bottom-2.5 w-10 h-10 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl transition-all shadow-lg shadow-cyan-500/30 active:scale-95 disabled:opacity-30 flex items-center justify-center">
