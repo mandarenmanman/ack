@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>AI 设置</title>
+  <title>AI Settings</title>
   <meta charset="UTF-8">
   <script src="js/tailwind.js"></script>
   <link rel="stylesheet" href="css/font-awesome.min.css">
@@ -17,28 +17,42 @@
     .analyze-status.show { display: flex; }
   </style>
 </head>
-<body>
+<body data-i18n-doc-title="settings.title">
   <div id="app" class="p-4 space-y-4">
     <!-- 标题 -->
     <header class="text-center pb-4 border-b border-gray-200">
       <h1 class="text-xl font-bold text-gray-800 flex items-center justify-center gap-2">
         <i class="fas fa-robot text-blue-500 text-2xl"></i>
-        <span>AI 服务配置</span>
+        <span data-i18n="settings.title">AI Settings</span>
       </h1>
     </header>
+
+    <!-- 语言 -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <label class="block text-sm font-semibold text-gray-700 mb-2">
+        <i class="fas fa-language text-blue-500 mr-2"></i><span data-i18n="common.language">Language</span>
+      </label>
+      <select id="language" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
+        <option value="auto" data-i18n="common.language.auto">Auto (browser)</option>
+        <option value="en" data-i18n="common.language.en">English</option>
+        <option value="zh-CN" data-i18n="common.language.zh">中文（简体）</option>
+      </select>
+      <p class="mt-1.5 text-xs text-gray-400" data-i18n="settings.privacyHint">API key is stored in chrome.storage.sync on your device.</p>
+    </div>
 
     <!-- 服务商选择 -->
     <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
       <label class="block text-sm font-semibold text-gray-700 mb-2">
-        <i class="fas fa-microchip text-blue-500 mr-2"></i>服务商
+        <i class="fas fa-microchip text-blue-500 mr-2"></i><span data-i18n="settings.section.provider">Provider</span>
       </label>
       <select id="aiProvider" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
-        <option value="deepseek">DeepSeek (推荐)</option>
-        <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+    
         <option value="openai">OpenAI</option>
-        <option value="anthropic">Anthropic (Claude)</option>
-        <option value="custom">自定义服务</option>
+        <option value="anthropic">Anthropic (Claude)</option> 
       </select>
+      <p class="mt-1.5 text-xs text-gray-400" data-i18n="settings.provider.compatHint">
+        Compatible with both OpenAI and Anthropic-style APIs.
+      </p>
     </div>
 
     <!-- API Key -->
@@ -46,7 +60,7 @@
       <label class="block text-sm font-semibold text-gray-700 mb-2">
         <i class="fas fa-key text-blue-500 mr-2"></i>API Key
       </label>
-      <input id="apiKey" type="password" placeholder="输入你的 API Key" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
+      <input id="apiKey" type="password" placeholder="API Key" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
       <div class="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
         <a href="https://platform.deepseek.com/" target="_blank" class="text-blue-500 hover:underline">DeepSeek</a>
         <span class="text-gray-300">|</span>
@@ -63,39 +77,39 @@
     <!-- API Endpoint -->
     <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
       <label class="block text-sm font-semibold text-gray-700 mb-2">
-        <i class="fas fa-link text-blue-500 mr-2"></i>API Endpoint
+        <i class="fas fa-link text-blue-500 mr-2"></i><span data-i18n="settings.section.endpoint">API Endpoint</span>
       </label>
-      <input id="apiEndpoint" type="text" placeholder="留空则使用默认端点" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
-      <p class="mt-1.5 text-xs text-gray-400">留空则使用默认端点</p>
+      <input id="apiEndpoint" type="text" data-i18n-placeholder="settings.section.endpoint" placeholder="API Endpoint" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
+      <p class="mt-1.5 text-xs text-gray-400" data-i18n="settings.section.endpoint">API Endpoint</p>
     </div>
 
     <!-- 模型名称 -->
     <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
       <label class="block text-sm font-semibold text-gray-700 mb-2">
-        <i class="fas fa-brain text-blue-500 mr-2"></i>模型名称
+        <i class="fas fa-brain text-blue-500 mr-2"></i><span data-i18n="settings.section.model">Model</span>
       </label>
-      <input id="modelName" type="text" placeholder="留空则使用默认模型" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
-      <p class="mt-1.5 text-xs text-gray-400">留空则使用默认模型</p>
+      <input id="modelName" type="text" placeholder="Model" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
+      <p class="mt-1.5 text-xs text-gray-400" data-i18n="settings.section.model">Model</p>
     </div>
 
     <!-- 批量大小 -->
     <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
       <label class="block text-sm font-semibold text-gray-700 mb-2">
-        <i class="fas fa-layer-group text-blue-500 mr-2"></i>每次分析的书签数量
+        <i class="fas fa-layer-group text-blue-500 mr-2"></i><span data-i18n="settings.section.batchSize">Batch size</span>
       </label>
       <input id="batchSize" type="number" min="1" max="100" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm">
-      <p class="mt-1.5 text-xs text-gray-400">建议值：20-50，太大会导致请求超时</p>
+      <p class="mt-1.5 text-xs text-gray-400" data-i18n="settings.batchSize.hint">Suggested: 20–50. Too large may timeout.</p>
     </div>
 
     <!-- 操作按钮 -->
     <div class="flex gap-2">
       <button id="testConnection" class="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition flex items-center justify-center gap-2">
         <i class="fas fa-plug"></i>
-        <span>测试连接</span>
+        <span data-i18n="settings.testConnection">Test connection</span>
       </button>
       <button id="saveSettings" class="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-lg transition shadow-md hover:shadow-lg flex items-center justify-center gap-2">
         <i class="fas fa-save"></i>
-        <span>保存设置</span>
+        <span data-i18n="settings.save">Save settings</span>
       </button>
     </div>
 
@@ -107,15 +121,16 @@
     <!-- 知识图谱入口 -->
     <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
       <h2 class="text-sm font-semibold text-gray-700 mb-3">
-        <i class="fas fa-project-diagram text-blue-500 mr-2"></i>知识图谱
+        <i class="fas fa-project-diagram text-blue-500 mr-2"></i><span data-i18n="popup.openGraph">Knowledge graph</span>
       </h2>
       <button id="viewGraph" class="w-full py-3 px-4 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white font-medium rounded-lg transition shadow-md hover:shadow-lg flex items-center justify-center gap-2">
         <i class="fas fa-eye"></i>
-        <span>进入知识图谱并分析</span>
+        <span data-i18n="settings.viewGraph">Open knowledge graph</span>
       </button>
     </div>
   </div>
 
+  <script src="js/i18n.js"></script>
   <script src="js/ai-service.js"></script>
   <script src="js/settings.js"></script>
 </body>

@@ -11,6 +11,13 @@ var activeCategories = new Set();
 var expandedCategory = null;  // 当前展开的分类名，null 表示概览模式
 var fullGraphData = null;     // 完整的原始图谱数据引用
 
+function t(key, fallback) {
+  try {
+    if (window.__ACK_T) return window.__ACK_T(key, fallback);
+  } catch (e) {}
+  return fallback != null ? String(fallback) : '';
+}
+
 // 颜色分配
 var categoryColors = {};
 var colorPalette = [
@@ -126,7 +133,7 @@ function showLoading() {
   if (graph) {
     graph.innerHTML = '<div class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900">' +
       '<i class="fas fa-circle-notch fa-spin text-4xl text-cyan-500 mb-4"></i>' +
-      '<p class="text-slate-400">正在加载图谱...</p>' +
+      '<p class="text-slate-400">' + t('graph.loading', 'Loading graph...') + '</p>' +
       '</div>';
   }
 }
@@ -636,7 +643,7 @@ function updateLinkStats(data) {
     .slice(0, 10);
 
   if (statsArray.length === 0) {
-    linkStatsContainer.innerHTML = '<div class="text-center text-slate-500 text-xs py-4">暂无连接数据</div>';
+    linkStatsContainer.innerHTML = '<div class="text-center text-slate-500 text-xs py-4">' + t('graph.links.empty', 'No connection data') + '</div>';
     return;
   }
 
@@ -958,7 +965,7 @@ function checkSyncStatus() {
        syncStatusEl.innerHTML = '<div class="flex flex-col gap-2">' +
         '<div class="flex items-center text-xs text-orange-400">' +
           '<i class="fas fa-hammer mr-1.5 align-middle"></i>' +
-          '<span class="leading-tight">存在未完成的全量构建任务，暂不可用增量同步，请点击下方继续分析。</span>' +
+          '<span class="leading-tight">' + t('graph.sync.incompleteFull', 'A previous full build is not finished. Incremental sync is disabled. Please resume analysis below.') + '</span>' +
         '</div>' +
       '</div>';
       return;
@@ -966,7 +973,7 @@ function checkSyncStatus() {
 
     if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
        // 仅在同步状态栏显示提示，不触发全屏空状态
-       syncStatusEl.innerHTML = '<div class="flex items-center text-xs text-slate-400"><i class="fas fa-info-circle mr-2"></i>图谱尚未分析，请点击全量分析</div>';
+       syncStatusEl.innerHTML = '<div class="flex items-center text-xs text-slate-400"><i class="fas fa-info-circle mr-2"></i>' + t('graph.sync.notAnalyzed', 'Graph not analyzed yet. Please run full analysis.') + '</div>';
        return;
     }
 
@@ -981,19 +988,19 @@ function checkSyncStatus() {
     var newBookmarks = allBookmarks.filter(function(b) { return !currentIds.has(String(b.id)); });
     
     if (newBookmarks.length === 0 && deletedIds.size === 0) {
-      syncStatusEl.innerHTML = '<div class="flex items-center text-xs text-green-400"><i class="fas fa-check-circle mr-2"></i>图谱已完全同步最新书签</div>';
+      syncStatusEl.innerHTML = '<div class="flex items-center text-xs text-green-400"><i class="fas fa-check-circle mr-2"></i>' + t('graph.sync.upToDate', 'Graph is up to date') + '</div>';
     } else {
       var msg = [];
-      if (newBookmarks.length > 0) msg.push(newBookmarks.length + ' 个新收藏');
-      if (deletedIds.size > 0) msg.push(deletedIds.size + ' 个失效书签');
+      if (newBookmarks.length > 0) msg.push(t('graph.sync.newBookmarks', 'New bookmarks: ') + newBookmarks.length);
+      if (deletedIds.size > 0) msg.push(t('graph.sync.deletedBookmarks', 'Deleted bookmarks: ') + deletedIds.size);
 
       syncStatusEl.innerHTML = '<div class="flex flex-col gap-2">' +
         '<div class="flex items-center text-xs text-yellow-400">' +
           '<i class="fas fa-exclamation-circle mr-1.5 align-middle"></i>' +
-          '<span class="leading-tight">发现 ' + msg.join('，') + '未同步记录</span>' +
+          '<span class="leading-tight">' + t('graph.sync.found', 'Found unsynced changes: ') + msg.join(', ') + '</span>' +
         '</div>' +
         '<button id="syncBookmarksBtn" class="w-full py-2 px-3 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white text-xs font-medium rounded-lg transition shadow-md hover:shadow-lg flex items-center justify-center gap-2">' +
-          '<i class="fas fa-magic"></i>一键增量同步图谱' +
+          '<i class="fas fa-magic"></i>' + t('graph.sync.runIncremental', 'Run incremental sync') +
         '</button>' +
       '</div>';
       
@@ -1045,7 +1052,7 @@ function doAnalyzeFull() {
     var tempGraph = result.tempGraphData;
 
     var startNew = function() {
-      showConfirm('这将清空现有图谱数据，采用分批处理消耗Token进行全量分析。\n整个过程可能持续几分钟，确认继续吗？').then(function(confirmed) {
+      showConfirm(t('graph.confirm.fullReset', 'This will clear the current graph and run full analysis in batches.\nIt may take several minutes. Continue?')).then(function(confirmed) {
         if (!confirmed) return;
         
         chrome.storage.local.remove(['analysisProgress', 'tempGraphData'], function() {
@@ -1100,7 +1107,7 @@ function startBatchAnalysis(targetBookmarks) {
   chrome.storage.sync.get(['aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(config) {
     if (!config.apiKey) {
       analyzing = false;
-      analyzeStatusText = '请先在"AI 接口配置"中填写 API Key！';
+      analyzeStatusText = t('graph.error.missingApiKey', 'Please set your API key in AI settings first.');
       updateAnalyzeButton(true);
       return;
     }
@@ -1192,7 +1199,7 @@ function processNextBatch(targetBookmarks, config, progress, tempGraph) {
     chrome.storage.local.set({ graphData: tempGraph }, function() {
       chrome.storage.local.remove(['analysisProgress', 'tempGraphData'], function() {
         analyzing = false;
-        analyzeStatusText = '全量图谱构建完毕！';
+        analyzeStatusText = t('graph.analyze.fullDone', 'Full graph build completed!');
         updateAnalyzeButton(false, true);
         loadGraphData();
         checkSyncStatus();
@@ -1209,7 +1216,7 @@ function processNextBatch(targetBookmarks, config, progress, tempGraph) {
   var displayEnd = (progress.offsetCount || 0) + batchEnd;
   var displayTotal = progress.absoluteTotal || progress.total;
 
-  analyzeStatusText = '正在分析批次: ' + displayCurrent + ' - ' + displayEnd + ' / ' + displayTotal;
+  analyzeStatusText = t('graph.analyze.batch', 'Analyzing batch: ') + displayCurrent + ' - ' + displayEnd + ' / ' + displayTotal;
   updateAnalyzeButton();
 
   var provider = config.aiProvider || 'deepseek';
@@ -1302,7 +1309,7 @@ function processNextBatch(targetBookmarks, config, progress, tempGraph) {
         chrome.storage.local.set({ graphData: tempGraph }, function() {
           chrome.storage.local.remove(['analysisProgress', 'tempGraphData'], function() {
             analyzing = false;
-            analyzeStatusText = '全量图谱构建完毕！';
+            analyzeStatusText = t('graph.analyze.fullDone', 'Full graph build completed!');
             updateAnalyzeButton(false, true);
             loadGraphData();
             checkSyncStatus();
@@ -1323,7 +1330,7 @@ function processNextBatch(targetBookmarks, config, progress, tempGraph) {
       });
     }).catch(function(error) {
       analyzing = false;
-      analyzeStatusText = '分析中止！网络或API报错: ' + error.message;
+      analyzeStatusText = t('graph.analyze.aborted', 'Analysis aborted: ') + error.message;
       updateAnalyzeButton(true);
       // 保存已经爬过的进度，方便用户点击重试恢复
       chrome.storage.local.set({ analysisProgress: progress, tempGraphData: tempGraph });
@@ -1354,9 +1361,9 @@ function performAnalysisSingleRequest(targetBookmarks, isIncremental, deletedIds
     var bookmarksToAnalyze = targetBookmarks.slice(0, maxBookmarks);
 
     if (bookmarksToAnalyze.length < targetBookmarks.length) {
-       analyzeStatusText = '正在分析前 ' + bookmarksToAnalyze.length + ' 个书签 (超限拦截)...';
+       analyzeStatusText = t('graph.analyze.partial', 'Analyzing first ') + bookmarksToAnalyze.length + t('graph.analyze.partialSuffix', ' bookmarks (limited)...');
     } else {
-       analyzeStatusText = '正在请求 AI 分析 ' + bookmarksToAnalyze.length + ' 个书签...';
+       analyzeStatusText = t('graph.analyze.requesting', 'Requesting AI analysis for ') + bookmarksToAnalyze.length + t('graph.analyze.requestingSuffix', ' bookmarks...');
     }
     updateAnalyzeButton();
 
@@ -1472,7 +1479,7 @@ function finishIncrementalUpdate(graphData, deletedIds, newAiData) {
 
   chrome.storage.local.set({ graphData: graphData }, function() {
     analyzing = false;
-    analyzeStatusText = '增量同步成功！';
+    analyzeStatusText = t('graph.sync.incrementalOk', 'Incremental sync succeeded!');
     updateAnalyzeButton(false, true);
     loadGraphData();
     checkSyncStatus();

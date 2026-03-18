@@ -264,7 +264,7 @@ function selectFolder(folderId) {
 function clearFolderSelection() {
   selectedFolder = null;
   elements.selectedFolderBox.classList.add('hidden');
-  showMessage('已清除文件夹选择', 'info');
+  showMessage(t('popup.clearedSelection', 'Folder selection cleared'), 'info');
 }
 
 // 添加书签
@@ -273,7 +273,7 @@ function addBookmark() {
     var currentTab = tabs[0];
     if (currentTab && currentTab.url && currentTab.url.indexOf('chrome://') !== 0) {
       var options = {
-        title: currentTab.title || '未命名页面',
+        title: currentTab.title || 'Untitled',
         url: currentTab.url
       };
 
@@ -283,15 +283,15 @@ function addBookmark() {
 
       chrome.bookmarks.create(options, function(newBookmark) {
         if (chrome.runtime.lastError) {
-          showMessage('收藏失败，请重试', 'error');
+          showMessage(t('popup.saveFailed', 'Save failed, please try again'), 'error');
         } else {
-          var folderInfo = selectedFolder ? ' 到文件夹 "' + selectedFolder.title + '"' : '';
-          showMessage('已收藏：' + newBookmark.title + folderInfo, 'success');
+          var folderInfo = selectedFolder ? (' → ' + selectedFolder.title) : '';
+          showMessage(t('popup.saved', 'Saved:') + ' ' + newBookmark.title + folderInfo, 'success');
           setTimeout(function() { loadBookmarks(); }, 1000);
         }
       });
     } else {
-      showMessage('无法收藏此页面', 'error');
+      showMessage(t('popup.cannotSave', 'Cannot save this page'), 'error');
     }
   });
 }
@@ -305,7 +305,7 @@ function openGraphView() {
     type: 'popup'
   }, function() {
     if (chrome.runtime.lastError) {
-      showMessage('无法打开知识图谱，请重试', 'error');
+      showMessage(t('popup.openGraphFail', 'Unable to open knowledge graph, please try again'), 'error');
     }
   });
 }
@@ -314,9 +314,16 @@ function openGraphView() {
 function openSettings() {
   chrome.tabs.create({ url: 'settings.html' }, function() {
     if (chrome.runtime.lastError) {
-      showMessage('无法打开设置页面，请重试', 'error');
+      showMessage(t('popup.openSettingsFail', 'Unable to open settings, please try again'), 'error');
     }
   });
+}
+
+function t(key, fallback) {
+  try {
+    if (window.__ACK_T) return window.__ACK_T(key, fallback);
+  } catch (e) {}
+  return fallback != null ? String(fallback) : '';
 }
 
 // 显示加载状态

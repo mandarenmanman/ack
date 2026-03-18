@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>书签知识图谱</title>
+  <title>Knowledge Graph</title>
   <meta charset="UTF-8">
   <script src="js/tailwind.js"></script>
   <link rel="stylesheet" href="css/font-awesome.min.css">
@@ -68,7 +68,7 @@
   </style>
 </head>
 
-<body class="bg-slate-900 text-slate-200">
+<body class="bg-slate-900 text-slate-200" data-i18n-doc-title="graph.title">
   <div id="app" class="flex w-screen h-screen">
     <!-- 侧边栏 -->
     <aside class="w-72 bg-gradient-to-b from-slate-800 to-slate-900 border-r border-slate-700 p-4 overflow-y-auto scrollbar-thin">
@@ -77,57 +77,57 @@
         <div class="w-10 h-10 flex items-center justify-center bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl shadow-lg shadow-cyan-500/20">
           <i class="fas fa-project-diagram text-white text-lg"></i>
         </div>
-        <h1 class="text-lg font-bold text-white">知识图谱</h1>
+        <h1 class="text-lg font-bold text-white" data-i18n="graph.title">Knowledge Graph</h1>
       </header>
 
       <!-- 控制按钮 -->
       <div class="flex gap-2 mb-6">
         <button id="reloadGraph" class="flex-1 py-2.5 px-3 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white text-sm font-medium rounded-lg transition shadow-md hover:shadow-lg hover:shadow-cyan-500/25 flex items-center justify-center gap-2">
-          <i class="fas fa-redo text-[10px]"></i> 重新加载
+          <i class="fas fa-redo text-[10px]"></i> <span data-i18n="graph.reload">Reload</span>
         </button>
         <button id="resetView" class="flex-1 py-2.5 px-3 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-lg transition flex items-center justify-center gap-2">
-          <i class="fas fa-compress text-[10px]"></i> 重置
+          <i class="fas fa-compress text-[10px]"></i> <span data-i18n="graph.reset">Reset</span>
         </button>
       </div>
 
       <!-- 分类筛选 -->
       <div class="mb-6">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">分类筛选</h3>
+          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider" data-i18n="graph.filter.title">Category filters</h3>
           <div id="categoryCountBadge" class="text-[10px] bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded-md border border-slate-700/50">0</div>
         </div>
         
         <!-- 分类搜索 -->
         <div class="relative mb-3">
           <i class="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500"></i>
-          <input type="text" id="categorySearch" placeholder="搜索分类..." class="w-full bg-slate-800/50 border border-slate-700/50 rounded-lg py-1.5 pl-8 pr-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-cyan-500/50 transition-all">
+          <input type="text" id="categorySearch" data-i18n-placeholder="graph.filter.search.placeholder" placeholder="Search categories..." class="w-full bg-slate-800/50 border border-slate-700/50 rounded-lg py-1.5 pl-8 pr-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-cyan-500/50 transition-all">
         </div>
 
         <div id="categoryFilters" class="flex flex-wrap gap-2 max-h-60 overflow-y-auto scrollbar-thin pr-1"></div>
         <button id="showAllCategories" class="w-full mt-3 py-1.5 text-[10px] text-slate-500 hover:text-cyan-400 transition-colors hidden border border-dashed border-slate-700 rounded-lg hover:border-cyan-500/30">
-          展开全部分类
+          <span data-i18n="graph.filter.showAll">Show all categories</span>
         </button>
       </div>
 
 
       <!-- 统计信息 -->
       <div class="mb-6">
-        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">统计信息</h3>
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3" data-i18n="graph.stats.title">Stats</h3>
         <div class="grid grid-cols-2 gap-2">
           <div class="bg-slate-700/50 rounded-lg p-3">
-            <div class="text-[10px] text-slate-500 mb-1">书签总数</div>
+            <div class="text-[10px] text-slate-500 mb-1" data-i18n="graph.stats.totalBookmarks">Total bookmarks</div>
             <div id="bookmarkCount" class="text-xl font-bold text-cyan-400">0</div>
           </div>
           <div class="bg-slate-700/50 rounded-lg p-3">
-            <div class="text-[10px] text-slate-500 mb-1">节点数</div>
+            <div class="text-[10px] text-slate-500 mb-1" data-i18n="graph.stats.nodes">Nodes</div>
             <div id="nodeCount" class="text-xl font-bold text-cyan-400">0</div>
           </div>
           <div class="bg-slate-700/50 rounded-lg p-3">
-            <div class="text-[10px] text-slate-500 mb-1">边数</div>
+            <div class="text-[10px] text-slate-500 mb-1" data-i18n="graph.stats.edges">Edges</div>
             <div id="edgeCount" class="text-xl font-bold text-cyan-400">0</div>
           </div>
           <div class="bg-slate-700/50 rounded-lg p-3">
-            <div class="text-[10px] text-slate-500 mb-1">分类数</div>
+            <div class="text-[10px] text-slate-500 mb-1" data-i18n="graph.stats.categories">Categories</div>
             <div id="categoryCount" class="text-xl font-bold text-cyan-400">0</div>
           </div>
         </div>
@@ -136,24 +136,24 @@
       <!-- 链接统计 -->
       <div class="mb-6">
         <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-          <i class="fas fa-trophy text-yellow-500 mr-1"></i>Top 链接
+          <i class="fas fa-trophy text-yellow-500 mr-1"></i><span data-i18n="graph.topLinks">Top links</span>
         </h3>
         <div id="linkStats" class="space-y-2 max-h-48 overflow-y-auto scrollbar-thin"></div>
       </div>
 
       <!-- 数据同步 -->
       <div class="mb-6 space-y-3">
-        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">同步与设置</h3>
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2" data-i18n="graph.sync.title">Sync & settings</h3>
         <div id="syncStatus" class="p-3 bg-slate-800/50 rounded-lg border border-slate-700/30">
           <div class="text-slate-500 text-xs flex items-center gap-2">
-            <i class="fas fa-circle-notch fa-spin"></i>检测中...
+            <i class="fas fa-circle-notch fa-spin"></i><span data-i18n="graph.sync.checking">Checking...</span>
           </div>
         </div>
         <button id="analyzeBookmarks" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-lg transition flex items-center justify-center gap-2">
-          <i class="fas fa-sync-alt"></i> 全量重新分析
+          <i class="fas fa-sync-alt"></i> <span data-i18n="graph.sync.analyzeFull">Full re-analysis</span>
         </button>
         <button id="openSettings" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs rounded-lg transition border border-slate-700 flex items-center justify-center gap-2">
-          <i class="fas fa-cog"></i> AI 接口配置
+          <i class="fas fa-cog"></i> <span data-i18n="graph.sync.openSettings">AI settings</span>
         </button>
       </div>
     </aside>
@@ -172,8 +172,8 @@
             <div class="absolute -top-1 -right-1 w-3 h-3 bg-green-500 border-2 border-slate-800 rounded-full"></div>
           </div>
           <div class="text-left">
-            <div class="text-xs font-bold text-white">龙虾助手</div>
-            <div class="text-[9px] text-slate-400 font-medium">点击开启 AI 对话</div>
+            <div class="text-xs font-bold text-white" data-i18n="assistant.toggle.title">AI assistant</div>
+            <div class="text-[9px] text-slate-400 font-medium" data-i18n="assistant.toggle.subtitle">Open chat</div>
           </div>
         </button>
       </div>
@@ -188,7 +188,7 @@
                 <i class="fas fa-comment-dots text-white text-lg"></i>
               </div>
               <div>
-                <h3 class="text-base font-bold text-white tracking-tight">龙虾助手</h3>
+                <h3 class="text-base font-bold text-white tracking-tight" data-i18n="assistant.title">Assistant</h3>
                 <div class="flex items-center gap-1.5">
                   <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
                   <span class="text-[10px] text-slate-400 font-bold tracking-widest uppercase">Intelligent Agent</span>
@@ -208,16 +208,16 @@
               </div>
               <div class="flex-1 space-y-2">
                 <div class="bg-slate-800/40 text-slate-200 text-sm p-4 rounded-2xl rounded-tl-none border border-slate-700/50 leading-relaxed shadow-sm">
-                  <p class="mb-2">你好！我是您的知识图谱助手。我可以帮您：</p>
+                  <p class="mb-2" data-i18n="assistant.welcome">Hi! I can help you:</p>
                   <ul class="space-y-1 text-xs text-slate-400">
                     <li class="flex items-center gap-2">
-                      <i class="fas fa-check text-cyan-500/50 text-[10px]"></i> 语义搜索您的书签
+                      <i class="fas fa-check text-cyan-500/50 text-[10px]"></i> <span data-i18n="assistant.welcome.1">Search your bookmarks</span>
                     </li>
                     <li class="flex items-center gap-2">
-                      <i class="fas fa-check text-cyan-500/50 text-[10px]"></i> 总结特定分类的内容
+                      <i class="fas fa-check text-cyan-500/50 text-[10px]"></i> <span data-i18n="assistant.welcome.2">Summarize a category</span>
                     </li>
                     <li class="flex items-center gap-2">
-                      <i class="fas fa-check text-cyan-500/50 text-[10px]"></i> 直接为您打开相关网页
+                      <i class="fas fa-check text-cyan-500/50 text-[10px]"></i> <span data-i18n="assistant.welcome.3">Open relevant links</span>
                     </li>
                   </ul>
                 </div>
@@ -232,7 +232,7 @@
               <div id="mentionSuggestions" class="hidden absolute bottom-full left-0 w-full mb-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-[70] max-h-48 overflow-y-auto scrollbar-thin">
                 <!-- 建议项动态生成 -->
               </div>
-              <textarea id="chatInput" rows="1" placeholder="发送指令或询问 (@文件夹, #分类)..." class="w-full bg-slate-800/50 border border-slate-700 text-white text-sm rounded-2xl py-4 pl-5 pr-14 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all resize-none shadow-inner"></textarea>
+              <textarea id="chatInput" rows="1" data-i18n-placeholder="assistant.input.placeholder" placeholder="Ask or send a command (@folder, #category)..." class="w-full bg-slate-800/50 border border-slate-700 text-white text-sm rounded-2xl py-4 pl-5 pr-14 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all resize-none shadow-inner"></textarea>
               <button id="sendMessage" class="absolute right-2.5 bottom-2.5 w-10 h-10 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl transition-all shadow-lg shadow-cyan-500/30 active:scale-95 disabled:opacity-30 flex items-center justify-center">
                 <i class="fas fa-paper-plane text-sm"></i>
               </button>
@@ -243,7 +243,7 @@
                 <div class="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
                 <div class="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce"></div>
               </div>
-              <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Processing</span>
+              <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest" data-i18n="assistant.processing">Processing</span>
             </div>
           </div>
         </div>
@@ -268,10 +268,10 @@
           <div class="w-20 h-20 bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl">
             <i class="fas fa-inbox text-3xl text-slate-600"></i>
           </div>
-          <h2 class="text-xl font-bold text-white mb-2">暂无分析数据</h2>
-          <p class="text-slate-500 text-sm mb-8 max-w-xs mx-auto">请先进行全量分析，AI 才能为您生成知识图谱并开启对话。</p>
+          <h2 class="text-xl font-bold text-white mb-2" data-i18n="graph.empty.title">No data yet</h2>
+          <p class="text-slate-500 text-sm mb-8 max-w-xs mx-auto" data-i18n="graph.empty.desc">Run full analysis first to generate the graph and enable chat.</p>
           <button id="goToSettings" class="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-2xl transition shadow-lg shadow-cyan-500/20">
-            去配置 AI
+            <span data-i18n="graph.empty.goSettings">Go to settings</span>
           </button>
         </div>
       </div>
@@ -280,16 +280,17 @@
     <!-- 右侧统计 (由 graph.js 填充) -->
     <aside class="w-64 bg-slate-800 border-l border-slate-700 p-4 overflow-y-auto scrollbar-thin">
       <div class="mb-8">
-        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">时间维度统计</h3>
+        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4" data-i18n="graph.right.dirTime">Folders by created time</h3>
         <div id="dirTimeStats" class="space-y-3"></div>
       </div>
       <div class="mb-8">
-        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">年份分布</h3>
+        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4" data-i18n="graph.right.yearDist">By year</h3>
         <div id="yearStats" class="space-y-3"></div>
       </div>
     </aside>
   </div>
 
+  <script src="js/i18n.js"></script>
   <script src="js/ai-service.js"></script>
   <script src="js/graph.js"></script>
   <script src="js/assistant.js"></script>

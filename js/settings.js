@@ -7,6 +7,7 @@ var apiEndpoint = '';
 var modelName = '';
 var batchSize = 50;
 var testing = false;
+var language = 'auto';
 
 // DOM 元素
 var elements = {};
@@ -37,6 +38,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // 缓存 DOM 元素
 function cacheElements() {
+  elements.language = document.getElementById('language');
   elements.aiProvider = document.getElementById('aiProvider');
   elements.apiKey = document.getElementById('apiKey');
   elements.apiEndpoint = document.getElementById('apiEndpoint');
@@ -50,15 +52,32 @@ function cacheElements() {
 
 // 绑定事件
 function bindEvents() {
+  if (elements.language) {
+    elements.language.addEventListener('change', onLanguageChange);
+  }
   elements.aiProvider.addEventListener('change', onProviderChange);
   elements.testConnection.addEventListener('click', testConnection);
   elements.saveSettings.addEventListener('click', saveSettings);
   elements.viewGraph.addEventListener('click', viewGraph);
 }
 
+function onLanguageChange() {
+  if (!elements.language) return;
+  language = elements.language.value || 'auto';
+  chrome.storage.sync.set({ language: language }, function() {
+    try { window.location.reload(); } catch (e) {}
+  });
+}
+
 // 加载设置
 function loadSettings() {
-  chrome.storage.sync.get(['aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(result) {
+  chrome.storage.sync.get(['language', 'aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(result) {
+    if (result.language && elements.language) {
+      language = result.language;
+      elements.language.value = language;
+    } else if (elements.language) {
+      elements.language.value = 'auto';
+    }
     if (result.aiProvider) {
       aiProvider = result.aiProvider;
       elements.aiProvider.value = aiProvider;
@@ -95,6 +114,9 @@ function onProviderChange() {
 
 // 保存设置
 function saveSettings() {
+  if (elements.language) {
+    language = elements.language.value || 'auto';
+  }
   aiProvider = elements.aiProvider.value;
   apiKey = elements.apiKey.value;
   apiEndpoint = elements.apiEndpoint.value;
@@ -102,13 +124,14 @@ function saveSettings() {
   batchSize = parseInt(elements.batchSize.value, 10);
 
   chrome.storage.sync.set({
+    language: language,
     aiProvider: aiProvider,
     apiKey: apiKey,
     apiEndpoint: apiEndpoint,
     modelName: modelName,
     batchSize: batchSize
   }, function() {
-    showStatus('设置已保存！', 'success');
+    showStatus(t('settings.saved', 'Settings saved!'), 'success');
   });
 }
 
@@ -116,13 +139,13 @@ function saveSettings() {
 function testConnection() {
   apiKey = elements.apiKey.value.trim();
   if (!apiKey) {
-    showStatus('请先输入 API Key', 'error');
+    showStatus(t('settings.enterApiKey', 'Please enter API Key first'), 'error');
     return;
   }
 
   testing = true;
   updateTestButton();
-  showStatus('正在测试连接...', 'info');
+  showStatus(t('settings.testingConnection', 'Testing connection...'), 'info');
 
   var endpoint = elements.apiEndpoint.value.trim();
   var model = elements.modelName.value.trim();
@@ -145,11 +168,11 @@ function testConnection() {
     // 强制前端的 AIService 重新 loadConfig 并且测试连接
     if (window.aiService) {
       window.aiService.testConnection().then(function() {
-        showStatus('连接成功！API 配置正确', 'success');
+        showStatus(t('settings.testOk', 'Connection OK'), 'success');
         testing = false;
         updateTestButton();
       }).catch(function(error) {
-        showStatus('连接失败：' + error.message, 'error');
+        showStatus(t('settings.testFail', 'Connection failed: ') + error.message, 'error');
         testing = false;
         updateTestButton();
       });
@@ -159,6 +182,13 @@ function testConnection() {
       updateTestButton();
     }
   });
+}
+
+function t(key, fallback) {
+  try {
+    if (window.__ACK_T) return window.__ACK_T(key, fallback);
+  } catch (e) {}
+  return fallback != null ? String(fallback) : '';
 }
 
 // 更新测试按钮状态

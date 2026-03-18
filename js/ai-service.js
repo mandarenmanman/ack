@@ -1,18 +1,7 @@
 // ai-service.js - AI 服务模块
 
 const AI_PROVIDERS = {
-  deepseek: {
-    name: 'DeepSeek',
-    defaultEndpoint: 'https://api.deepseek.com',
-    defaultModel: 'deepseek-chat',
-    chatPath: '/v1/chat/completions'
-  },
-  siliconflow: {
-    name: '硅基流动',
-    defaultEndpoint: 'https://api.siliconflow.cn',
-    defaultModel: 'deepseek-ai/DeepSeek-V3',
-    chatPath: '/v1/chat/completions'
-  },
+ 
   openai: {
     name: 'OpenAI',
     defaultEndpoint: 'https://api.openai.com',
@@ -25,12 +14,7 @@ const AI_PROVIDERS = {
     defaultModel: 'claude-sonnet-4-20250514',
     chatPath: '/v1/messages'
   },
-  custom: {
-    name: '自定义',
-    defaultEndpoint: '',
-    defaultModel: '',
-    chatPath: '/v1/chat/completions'
-  }
+ 
 };
 
 class AIService {
