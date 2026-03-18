@@ -40,6 +40,11 @@
   "settings.viewGraph": "进入知识图谱并分析",
   "settings.privacyHint": "API Key 存储在本地 chrome.storage.sync。",
 
+  "settings.section.mcp.title": "MCP 桥接",
+  "settings.mcp.enable": "启用本地 MCP 桥接",
+  "settings.mcp.hint": "需要先注册本地 Native Messaging Host，并在 127.0.0.1 上运行本地 MCP 服务。",
+  "settings.mcp.test": "测试 MCP 桥接",
+
   "graph.title": "知识图谱",
   "graph.reload": "重新加载",
   "graph.reset": "重置",

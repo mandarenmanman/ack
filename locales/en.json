@@ -40,6 +40,11 @@
   "settings.viewGraph": "Open knowledge graph",
   "settings.privacyHint": "API key is stored in chrome.storage.sync on your device.",
 
+  "settings.section.mcp.title": "MCP Bridge",
+  "settings.mcp.enable": "Enable local MCP bridge",
+  "settings.mcp.hint": "This requires registering the local Native Messaging Host and running a local MCP server on 127.0.0.1.",
+  "settings.mcp.test": "Test MCP bridge",
+
   "graph.title": "Knowledge Graph",
   "graph.reload": "Reload",
   "graph.reset": "Reset",

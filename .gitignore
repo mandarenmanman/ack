@@ -1,0 +1,15 @@
+# Node dependencies
+node_modules/
+**/node_modules/
+
+# Native host / build artifacts
+native/dist/
+native/.env*
+native/*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

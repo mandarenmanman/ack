@@ -8,6 +8,9 @@ var modelName = '';
 var batchSize = 50;
 var testing = false;
 var language = 'auto';
+var mcpEnabled = false;
+
+var MCP_NATIVE_HOST = 'ack_mcp_native_host';
 
 // DOM 元素
 var elements = {};
@@ -39,6 +42,8 @@ document.addEventListener('DOMContentLoaded', function() {
 // 缓存 DOM 元素
 function cacheElements() {
   elements.language = document.getElementById('language');
+  elements.enableMcpBridge = document.getElementById('enableMcpBridge');
+  elements.testMcpBridge = document.getElementById('testMcpBridge');
   elements.aiProvider = document.getElementById('aiProvider');
   elements.apiKey = document.getElementById('apiKey');
   elements.apiEndpoint = document.getElementById('apiEndpoint');
@@ -55,10 +60,24 @@ function bindEvents() {
   if (elements.language) {
     elements.language.addEventListener('change', onLanguageChange);
   }
+  if (elements.enableMcpBridge) {
+    elements.enableMcpBridge.addEventListener('change', onMcpToggle);
+  }
+  if (elements.testMcpBridge) {
+    elements.testMcpBridge.addEventListener('click', testMcpBridge);
+  }
   elements.aiProvider.addEventListener('change', onProviderChange);
   elements.testConnection.addEventListener('click', testConnection);
   elements.saveSettings.addEventListener('click', saveSettings);
   elements.viewGraph.addEventListener('click', viewGraph);
+}
+
+function onMcpToggle() {
+  if (!elements.enableMcpBridge) return;
+  mcpEnabled = !!elements.enableMcpBridge.checked;
+  chrome.storage.sync.set({ mcpEnabled: mcpEnabled }, function() {
+    chrome.runtime.sendMessage({ action: 'setMcpBridgeEnabled', enabled: mcpEnabled });
+  });
 }
 
 function onLanguageChange() {
@@ -71,12 +90,23 @@ function onLanguageChange() {
 
 // 加载设置
 function loadSettings() {
-  chrome.storage.sync.get(['language', 'aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(result) {
+  chrome.storage.sync.get(['language', 'mcpEnabled', 'aiProvider', 'apiKey', 'apiEndpoint', 'modelName', 'batchSize'], function(result) {
     if (result.language && elements.language) {
       language = result.language;
       elements.language.value = language;
     } else if (elements.language) {
       elements.language.value = 'auto';
+    }
+    if (typeof result.mcpEnabled === 'boolean') {
+      mcpEnabled = result.mcpEnabled;
+    } else {
+      mcpEnabled = false;
+    }
+    if (elements.enableMcpBridge) {
+      elements.enableMcpBridge.checked = mcpEnabled;
+    }
+    if (mcpEnabled) {
+      chrome.runtime.sendMessage({ action: 'setMcpBridgeEnabled', enabled: true });
     }
     if (result.aiProvider) {
       aiProvider = result.aiProvider;
@@ -97,6 +127,22 @@ function loadSettings() {
     if (result.batchSize) {
       batchSize = result.batchSize;
       elements.batchSize.value = batchSize;
+    }
+  });
+}
+
+function testMcpBridge() {
+  // 只做连接性检查：让后台尝试与 native host 建链并返回状态
+  showStatus(t('settings.mcp.test'), 'info');
+  chrome.runtime.sendMessage({ action: 'testMcpBridge' }, function(res) {
+    if (chrome.runtime.lastError) {
+      showStatus(chrome.runtime.lastError.message, 'error');
+      return;
+    }
+    if (res && res.success) {
+      showStatus('MCP bridge OK', 'success');
+    } else {
+      showStatus((res && res.error) ? res.error : 'MCP bridge failed', 'error');
     }
   });
 }

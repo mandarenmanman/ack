@@ -76,6 +76,221 @@ chrome.action.onClicked.addListener(function(tab) {
   console.log('扩展图标被点击，当前标签页:', tab.title);
 });
 
+// =========================
+// MCP Bridge (Native Host)
+// =========================
+
+var MCP_NATIVE_HOST_NAME = 'ack_mcp_native_host';
+var nativePort = null;
+var nativeDisconnected = false;
+var pendingNative = {}; // id -> {resolve, reject}
+
+function ensureNativePort() {
+  return new Promise(function(resolve, reject) {
+    if (nativePort && !nativeDisconnected) return resolve(nativePort);
+
+    nativeDisconnected = false;
+    try {
+      nativePort = chrome.runtime.connectNative(MCP_NATIVE_HOST_NAME);
+    } catch (e) {
+      nativePort = null;
+      reject(e);
+      return;
+    }
+
+    nativePort.onMessage.addListener(function(msg) {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'pong' && msg.id != null) {
+        var p = pendingNative[msg.id];
+        if (p) {
+          delete pendingNative[msg.id];
+          p.resolve(msg.result || { success: true });
+        }
+        return;
+      }
+
+      if (msg.type === 'tool_call' && msg.id != null && msg.name) {
+        handleNativeToolCall(msg).then(function(result) {
+          try {
+            nativePort.postMessage({ type: 'tool_result', id: msg.id, result: result });
+          } catch (e) {}
+        }).catch(function(err) {
+          try {
+            nativePort.postMessage({ type: 'tool_result', id: msg.id, result: { error: err.message } });
+          } catch (e2) {}
+        });
+      }
+    });
+
+    nativePort.onDisconnect.addListener(function() {
+      nativeDisconnected = true;
+      nativePort = null;
+    });
+
+    resolve(nativePort);
+  });
+}
+
+function getGraphData() {
+  return new Promise(function(resolve) {
+    chrome.storage.local.get(['graphData'], function(res) {
+      resolve(res && res.graphData ? res.graphData : null);
+    });
+  });
+}
+
+var _bookmarkFolderIndex = null; // Map<string, string[]>
+var _bookmarkFolderIndexAt = 0;
+var BOOKMARK_INDEX_TTL_MS = 5 * 60 * 1000;
+
+function getBookmarkFolderIndex() {
+  var now = Date.now();
+  if (_bookmarkFolderIndex && (now - _bookmarkFolderIndexAt) < BOOKMARK_INDEX_TTL_MS) {
+    return Promise.resolve(_bookmarkFolderIndex);
+  }
+
+  return new Promise(function(resolve) {
+    chrome.bookmarks.getTree(function(treeNodes) {
+      var index = new Map();
+
+      function traverse(nodes, path) {
+        if (!Array.isArray(nodes)) return;
+        for (var i = 0; i < nodes.length; i++) {
+          var node = nodes[i];
+          if (!node) continue;
+          if (node.children && Array.isArray(node.children)) {
+            var title = node.title || '';
+            var nextPath = title ? path.concat([title]) : path;
+            traverse(node.children, nextPath);
+          } else if (node.url) {
+            index.set(String(node.id), path);
+          }
+        }
+      }
+
+      traverse(treeNodes, []);
+      _bookmarkFolderIndex = index;
+      _bookmarkFolderIndexAt = now;
+      resolve(index);
+    });
+  });
+}
+
+function scopedNodesByArgs(graphData, args) {
+  args = args || {};
+  var nodes = Array.isArray(graphData.nodes) ? graphData.nodes.slice() : [];
+
+  var folderQuery = args.folder ? String(args.folder).trim() : '';
+  var categoryQuery = args.category ? String(args.category).trim() : '';
+
+  // 兼容上层可能传入的 "@xxx" / "#xxx"
+  folderQuery = folderQuery.replace(/^@/, '');
+  categoryQuery = categoryQuery.replace(/^#/, '');
+
+  if (categoryQuery) {
+    var catLower = categoryQuery.toLowerCase();
+    nodes = nodes.filter(function(n) {
+      var c = n && n.category ? String(n.category) : '';
+      return c === categoryQuery || c.toLowerCase().includes(catLower);
+    });
+  }
+
+  if (folderQuery) {
+    // 按文件夹路径片段包含匹配（例如目录名 “JARVIS”）
+    var folderLower = folderQuery.toLowerCase();
+    return getBookmarkFolderIndex().then(function(folderIndex) {
+      return nodes.filter(function(n) {
+        var id = n && n.id != null ? String(n.id) : '';
+        var path = folderIndex.get(id);
+        if (!path || path.length === 0) return false;
+        for (var i = 0; i < path.length; i++) {
+          if (String(path[i]).toLowerCase().includes(folderLower)) return true;
+        }
+        return false;
+      });
+    });
+  }
+
+  return Promise.resolve(nodes);
+}
+
+function normalizeEdgeId(x) {
+  if (x == null) return '';
+  if (typeof x === 'object' && x.id != null) return String(x.id);
+  return String(x);
+}
+
+async function handleNativeToolCall(msg) {
+  var name = msg.name;
+  var args = msg.arguments || {};
+  var graphData = await getGraphData();
+  if (!graphData || !graphData.nodes) {
+    return { error: '未加载图谱数据' };
+  }
+
+  // 先做范围裁剪，再执行具体工具
+  var scoped = await scopedNodesByArgs(graphData, args);
+
+  if (name === 'search_bookmarks') {
+    var keywordRaw = args.keyword != null ? String(args.keyword) : '';
+    var keyword = keywordRaw.trim().toLowerCase();
+    var limit = Math.max(1, Math.min(parseInt(args.limit, 10) || 10, 50));
+
+    var results;
+    if (!keyword) {
+      results = scoped;
+    } else {
+      results = scoped.filter(function(n) {
+        var label = n && n.label ? String(n.label).toLowerCase() : '';
+        if (label.includes(keyword)) return true;
+        var tags = n && n.tags ? n.tags : [];
+        for (var i = 0; i < tags.length; i++) {
+          if (String(tags[i]).toLowerCase().includes(keyword)) return true;
+        }
+        var cat = n && n.category ? String(n.category).toLowerCase() : '';
+        if (cat.includes(keyword)) return true;
+        return false;
+      }).slice(0, limit);
+    }
+
+    return {
+      success: true,
+      scope: { folder: args.folder || null, category: args.category || null },
+      matched: results.length,
+      results: results.map(function(r) {
+        return { title: r.label, url: r.url, category: r.category };
+      })
+    };
+  }
+
+  if (name === 'get_graph_stats') {
+    var nodes = scoped;
+    var nodeIdSet = new Set(nodes.map(function(n) { return String(n.id); }));
+    var edges = Array.isArray(graphData.edges) ? graphData.edges : [];
+    var scopedEdges = edges.filter(function(e) {
+      var s = normalizeEdgeId(e.source);
+      var t = normalizeEdgeId(e.target);
+      return nodeIdSet.has(s) && nodeIdSet.has(t);
+    });
+
+    return {
+      success: true,
+      scope: { folder: args.folder || null, category: args.category || null },
+      total_nodes: nodes.length,
+      total_edges: scopedEdges.length,
+      categories: Array.from(new Set(nodes.map(function(n) { return n.category; }))).filter(Boolean)
+    };
+  }
+
+  if (name === 'open_url') {
+    if (!args || !args.url) return { error: 'url 不能为空' };
+    chrome.tabs.create({ url: args.url });
+    return { success: true, message: 'opened: ' + args.url };
+  }
+
+  return { error: '未知工具: ' + name };
+}
+
 // 处理来自 settings 和 popup 的消息
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   console.log('收到消息:', request);
@@ -102,6 +317,51 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     chrome.bookmarks.getTree(function(bookmarkTreeNodes) {
       var stats = calculateBookmarkStats(bookmarkTreeNodes);
       sendResponse(stats);
+    });
+    return true;
+  }
+
+  if (request.action === 'setMcpBridgeEnabled') {
+    var enabled = !!request.enabled;
+    if (!enabled) {
+      if (nativePort) {
+        try { nativePort.disconnect(); } catch (e) {}
+      }
+      nativePort = null;
+      sendResponse({ success: true });
+      return false;
+    }
+
+    ensureNativePort().then(function() {
+      sendResponse({ success: true });
+    }).catch(function(err) {
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
+
+  if (request.action === 'testMcpBridge') {
+    ensureNativePort().then(function(port) {
+      var id = Date.now() + '_' + Math.random().toString(16).slice(2);
+      return new Promise(function(resolve, reject) {
+        pendingNative[id] = { resolve: resolve, reject: reject };
+        try {
+          port.postMessage({ type: 'ping', id: id });
+          setTimeout(function() {
+            if (pendingNative[id]) {
+              delete pendingNative[id];
+              reject(new Error('timeout'));
+            }
+          }, 3000);
+        } catch (e) {
+          delete pendingNative[id];
+          reject(e);
+        }
+      });
+    }).then(function(result) {
+      sendResponse({ success: true, result: result });
+    }).catch(function(err) {
+      sendResponse({ success: false, error: err.message });
     });
     return true;
   }

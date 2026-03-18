@@ -1,0 +1,8 @@
+{
+  "name": "ack_mcp_native_host",
+  "description": "ACK MCP Native Host (provides bookmark graph tools to MCP clients)",
+  "path": "D:\\github\\ack\\native\\run-ack-mcp-native-host.bat",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://YOUR_EXTENSION_ID_HERE/"]
+}
+

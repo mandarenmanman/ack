@@ -1,0 +1,11 @@
+{
+  "name": "ack-mcp-native-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.27.1",
+    "zod": "^3.25.0"
+  }
+}
+
