@@ -315,11 +315,12 @@ ${bookmarkSummary}
         parameters: {
           type: 'object',
           properties: {
-            keyword: { type: 'string', description: '搜索关键词' },
+            keyword: { type: 'string', description: '可选：搜索关键词；留空则返回该范围内的书签列表' },
             folder: { type: 'string', description: '可选：限定在某个文件夹范围内（来自用户输入的 @文件夹名）' },
-            category: { type: 'string', description: '可选：限定在某个分类范围内（来自用户输入的 #分类名）' }
+            category: { type: 'string', description: '可选：限定在某个分类范围内（来自用户输入的 #分类名）' },
+            limit: { type: 'number', description: '可选：最多返回多少条结果（默认 10，最大 50）' }
           },
-          required: ['keyword']
+          required: []
         }
       },
       {
@@ -412,14 +413,21 @@ ${bookmarkSummary}
 
     switch (name) {
       case 'search_bookmarks': {
-        const keyword = String(args.keyword || '').toLowerCase();
-        if (!keyword) return { error: 'keyword 不能为空' };
+        const keywordRaw = (args && args.keyword != null) ? String(args.keyword) : '';
+        const keyword = keywordRaw.trim().toLowerCase();
+        const limit = Math.max(1, Math.min(parseInt(args && args.limit, 10) || 10, 50));
 
-        const results = scopedNodes.filter(n =>
-          (n.label && String(n.label).toLowerCase().includes(keyword)) ||
-          (n.tags && n.tags.some(t => String(t).toLowerCase().includes(keyword))) ||
-          (n.category && String(n.category).toLowerCase().includes(keyword))
-        ).slice(0, 5);
+        let results;
+        if (!keyword) {
+          // 仅按范围列出：返回该范围内的全部书签
+          results = scopedNodes;
+        } else {
+          results = scopedNodes.filter(n =>
+            (n.label && String(n.label).toLowerCase().includes(keyword)) ||
+            (n.tags && n.tags.some(t => String(t).toLowerCase().includes(keyword))) ||
+            (n.category && String(n.category).toLowerCase().includes(keyword))
+          ).slice(0, limit);
+        }
 
         return {
           success: true,
