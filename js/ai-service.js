@@ -36,6 +36,9 @@ const AI_PROVIDERS = {
 class AIService {
   constructor() {
     this.config = null;
+    // 缓存：书签ID -> 所在文件夹路径（用于 @文件夹 范围筛选）
+    this._bookmarkFolderIndex = null; // Map<string, string[]>
+    this._bookmarkFolderIndexAt = 0;
   }
 
   // 加载配置
@@ -308,19 +311,27 @@ ${bookmarkSummary}
     return [
       {
         name: 'search_bookmarks',
-        description: '在用户的书签图谱中根据关键词语义搜索相关的书签',
+        description: '在用户的书签图谱中搜索相关书签（可选按 @文件夹 或 #分类 限定范围）',
         parameters: {
           type: 'object',
           properties: {
-            keyword: { type: 'string', description: '搜索关键词' }
+            keyword: { type: 'string', description: '搜索关键词' },
+            folder: { type: 'string', description: '可选：限定在某个文件夹范围内（来自用户输入的 @文件夹名）' },
+            category: { type: 'string', description: '可选：限定在某个分类范围内（来自用户输入的 #分类名）' }
           },
           required: ['keyword']
         }
       },
       {
         name: 'get_graph_stats',
-        description: '获取当前知识图谱的统计信息（节点数、分类数等）',
-        parameters: { type: 'object', properties: {} }
+        description: '获取当前知识图谱的统计信息（可选按 @文件夹 或 #分类 限定范围）',
+        parameters: {
+          type: 'object',
+          properties: {
+            folder: { type: 'string', description: '可选：限定在某个文件夹范围内（来自用户输入的 @文件夹名）' },
+            category: { type: 'string', description: '可选：限定在某个分类范围内（来自用户输入的 #分类名）' }
+          }
+        }
       },
       {
         name: 'open_url',
@@ -337,6 +348,24 @@ ${bookmarkSummary}
   }
 
   // 2. 执行工具调用
+  /**
+   * 执行一次「模型发起的工具调用」并返回工具结果。
+   *
+   * 这个方法充当 AI 工具链的“本地执行器”：把模型输出的 tool call（函数名 + 参数）
+   * 映射到扩展内允许的操作（白名单），并将结果序列化后回传给模型继续生成最终回复。
+   *
+   * 兼容点：
+   * - `toolCall.arguments` 既可能是 JSON 字符串（OpenAI 常见），也可能是对象（部分实现/代理）。
+   * - 返回值统一为可 JSON.stringify 的对象，供上层拼成 `role: "tool"` 消息回灌。
+   *
+   * 安全边界：
+   * - 只允许执行 `getAvailableTools()` 中声明的工具；未知工具直接返回错误。
+   * - 依赖已加载的 `graphData`（来自本地存储/页面上下文），若缺失则拒绝执行，避免空跑或误操作。
+   *
+   * @param {{name: string, arguments: (string|object)}} toolCall 模型请求调用的工具信息
+   * @param {{nodes?: Array, edges?: Array}|null} graphData 当前图谱数据（用于搜索/统计/打开链接等）
+   * @returns {Promise<object>} 工具执行结果（成功/失败信息）
+   */
   async executeTool(toolCall, graphData) {
     const { name, arguments: argsString } = toolCall;
     let args;
@@ -353,22 +382,68 @@ ${bookmarkSummary}
       return { error: '未加载图谱数据' };
     }
 
+    // 统一解析范围限定：@文件夹 / #分类
+    const folderQuery = (args && args.folder ? String(args.folder).trim() : '');
+    const categoryQuery = (args && args.category ? String(args.category).trim() : '');
+
+    // 先按范围把候选节点缩小，再做关键词匹配（避免大图谱全量扫）
+    let scopedNodes = Array.isArray(graphData.nodes) ? graphData.nodes.slice() : [];
+
+    if (categoryQuery) {
+      const catLower = categoryQuery.toLowerCase();
+      scopedNodes = scopedNodes.filter(n => {
+        const c = (n && n.category) ? String(n.category) : '';
+        // 优先精确匹配；其次包含匹配（兼容用户输入不完整）
+        return c === categoryQuery || c.toLowerCase().includes(catLower);
+      });
+    }
+
+    if (folderQuery) {
+      const folderLower = folderQuery.toLowerCase();
+      const folderIndex = await this.getBookmarkFolderIndex();
+      scopedNodes = scopedNodes.filter(n => {
+        const id = n && n.id != null ? String(n.id) : '';
+        const path = folderIndex.get(id);
+        if (!path || path.length === 0) return false;
+        // 路径任意一段包含匹配即可（@xxx 往往是目录名片段）
+        return path.some(seg => String(seg).toLowerCase().includes(folderLower));
+      });
+    }
+
     switch (name) {
       case 'search_bookmarks': {
-        const keyword = args.keyword.toLowerCase();
-        const results = graphData.nodes.filter(n =>
-          (n.label && n.label.toLowerCase().includes(keyword)) ||
-          (n.tags && n.tags.some(t => t.toLowerCase().includes(keyword))) ||
-          (n.category && n.category.toLowerCase().includes(keyword))
+        const keyword = String(args.keyword || '').toLowerCase();
+        if (!keyword) return { error: 'keyword 不能为空' };
+
+        const results = scopedNodes.filter(n =>
+          (n.label && String(n.label).toLowerCase().includes(keyword)) ||
+          (n.tags && n.tags.some(t => String(t).toLowerCase().includes(keyword))) ||
+          (n.category && String(n.category).toLowerCase().includes(keyword))
         ).slice(0, 5);
-        return { success: true, results: results.map(r => ({ title: r.label, url: r.url, category: r.category })) };
+
+        return {
+          success: true,
+          scope: { folder: folderQuery || null, category: categoryQuery || null },
+          matched: results.length,
+          results: results.map(r => ({ title: r.label, url: r.url, category: r.category }))
+        };
       }
 
       case 'get_graph_stats': {
+        const nodes = scopedNodes;
+        const edges = Array.isArray(graphData.edges) ? graphData.edges : [];
+        const nodeIdSet = new Set(nodes.map(n => String(n.id)));
+        const scopedEdges = edges.filter(e => {
+          const s = e && e.source != null ? String(typeof e.source === 'object' ? e.source.id : e.source) : '';
+          const t = e && e.target != null ? String(typeof e.target === 'object' ? e.target.id : e.target) : '';
+          return nodeIdSet.has(s) && nodeIdSet.has(t);
+        });
+
         return {
-          total_nodes: graphData.nodes.length,
-          total_edges: graphData.edges.length,
-          categories: Array.from(new Set(graphData.nodes.map(n => n.category))).filter(Boolean)
+          scope: { folder: folderQuery || null, category: categoryQuery || null },
+          total_nodes: nodes.length,
+          total_edges: scopedEdges.length,
+          categories: Array.from(new Set(nodes.map(n => n.category))).filter(Boolean)
         };
       }
 
@@ -380,6 +455,46 @@ ${bookmarkSummary}
       default:
         return { error: `未知工具: ${name}` };
     }
+  }
+
+  /**
+   * 构建并缓存书签「ID -> 文件夹路径」索引，用于 @文件夹 范围筛选。
+   * - 路径为从根到当前书签父目录的标题数组（包含父目录本身）。
+   * - 为避免每次工具调用都遍历全量书签树，默认缓存 5 分钟。
+   *
+   * @returns {Promise<Map<string, string[]>>}
+   */
+  async getBookmarkFolderIndex() {
+    const TTL_MS = 5 * 60 * 1000;
+    const now = Date.now();
+    if (this._bookmarkFolderIndex && (now - this._bookmarkFolderIndexAt) < TTL_MS) {
+      return this._bookmarkFolderIndex;
+    }
+
+    const index = new Map();
+    const tree = await new Promise((resolve) => chrome.bookmarks.getTree(resolve));
+
+    const traverse = (nodes, path) => {
+      if (!Array.isArray(nodes)) return;
+      for (const node of nodes) {
+        if (!node) continue;
+        if (node.children && Array.isArray(node.children)) {
+          const title = node.title || '';
+          // root 节点 title 可能为空或 "root"，不强行加入；但仍继续向下遍历
+          const nextPath = title ? [...path, title] : path;
+          traverse(node.children, nextPath);
+        } else if (node.url) {
+          // node 为书签：记录它所属的文件夹路径（即当前 path）
+          index.set(String(node.id), path);
+        }
+      }
+    };
+
+    traverse(tree, []);
+
+    this._bookmarkFolderIndex = index;
+    this._bookmarkFolderIndexAt = now;
+    return index;
   }
 
   // 3. 智能助手聊天接口
@@ -401,6 +516,8 @@ ${bookmarkSummary}
         - @文件夹：指代浏览器中的某个目录。
         - #分类名：指代图谱中的某个核心分类。
         如果用户提到这些标记，请在回答或调用搜索工具时优先考虑对应范围。
+        工具参数约定：
+        - 当用户提到 @文件夹 或 #分类 时，请在 search_bookmarks / get_graph_stats 的参数中携带 folder / category 来限定范围。
         你的回答应该专业、简洁且优雅。
         尽量利用搜索工具为用户提供有价值的建议。`
       },

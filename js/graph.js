@@ -675,50 +675,114 @@ function highlightNode(nodeId) {
   });
 }
 
+var categorySearchKeyword = '';
+var isShowingAllCategories = false;
+
 function createCategoryFilters(data) {
   var filtersContainer = document.getElementById('categoryFilters');
-  var categories = [];
+  var searchInput = document.getElementById('categorySearch');
+  var showAllBtn = document.getElementById('showAllCategories');
+  var badge = document.getElementById('categoryCountBadge');
+  
+  if (!filtersContainer) return;
+
+  // 1. 统计每个分类的书签数量
+  var categoryCounts = {};
   data.nodes.forEach(function(n) {
-    if (n.category && categories.indexOf(n.category) === -1) categories.push(n.category);
+    if (n.category) {
+      categoryCounts[n.category] = (categoryCounts[n.category] || 0) + 1;
+    }
   });
 
-  activeCategories = new Set(categories);
+  var allCategories = Object.keys(categoryCounts).map(function(name) {
+    return { name: name, count: categoryCounts[name] };
+  });
 
-  var html = '';
-  for (var i = 0; i < categories.length; i++) {
-    var cat = categories[i];
-    html += '<label class="category-filter inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 rounded-full text-xs cursor-pointer transition border-2 border-transparent hover:border-cyan-500" data-category="' + cat + '">' +
-      '<input type="checkbox" checked class="hidden" value="' + cat + '">' +
-      '<span class="category-color w-3 h-3 rounded-full" style="background: ' + (categoryColors[cat] || '#64748b') + '"></span>' +
-      '<span class="category-name text-slate-300">' + cat + '</span></label>';
+  // 2. 按数量从大到小排序
+  allCategories.sort(function(a, b) { return b.count - a.count; });
+  
+  if (badge) badge.textContent = allCategories.length;
+
+  // 初始化 activeCategories (如果尚未初始化)
+  if (!activeCategories || activeCategories.size === 0) {
+    activeCategories = new Set(allCategories.map(function(c) { return c.name; }));
   }
-  filtersContainer.innerHTML = html;
 
-  filtersContainer.querySelectorAll('.category-filter').forEach(function(filter) {
-    filter.addEventListener('click', function(e) {
-      var checkbox = filter.querySelector('input');
-      checkbox.checked = !checkbox.checked;
-      if (checkbox.checked) {
-        activeCategories.add(filter.dataset.category);
-        filter.classList.add('border-cyan-500');
-      } else {
-        activeCategories.delete(filter.dataset.category);
-        filter.classList.remove('border-cyan-500');
-      }
-      filterNodes();
+  // 3. 渲染函数
+  function renderFilters() {
+    // 过滤逻辑
+    var filtered = allCategories.filter(function(c) {
+      return c.name.toLowerCase().includes(categorySearchKeyword.toLowerCase());
     });
-  });
 
-  // 创建图例
-  var legendContainer = document.getElementById('legend');
-  var legendHtml = '';
-  for (var i = 0; i < categories.length; i++) {
-    var cat = categories[i];
-    legendHtml += '<div class="legend-item flex items-center gap-2">' +
-      '<span class="legend-color w-4 h-4 rounded" style="background: ' + (categoryColors[cat] || '#64748b') + '"></span>' +
-      '<span class="text-sm text-slate-300">' + cat + '</span></div>';
+    var hasHidden = false;
+    var displayList = filtered;
+    
+    // 如果没有搜索关键字，则应用 20 个限制
+    if (!categorySearchKeyword && !isShowingAllCategories && filtered.length > 20) {
+      displayList = filtered.slice(0, 20);
+      hasHidden = true;
+    }
+
+    if (showAllBtn) {
+      showAllBtn.classList.toggle('hidden', !hasHidden);
+      showAllBtn.textContent = '展开全部分类 (' + (filtered.length - 20) + ')';
+    }
+
+    var html = '';
+    for (var i = 0; i < displayList.length; i++) {
+        var cat = displayList[i].name;
+        var count = displayList[i].count;
+        var isActive = activeCategories.has(cat);
+        
+        html += '<div class="category-filter inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-800/40 hover:bg-slate-700/60 rounded-lg text-[10px] cursor-pointer transition border border-transparent ' + (isActive ? 'border-cyan-500/50 bg-cyan-500/10' : 'border-slate-700/50') + '" data-category="' + cat + '">' +
+          '<div class="w-1.5 h-1.5 rounded-full" style="background: ' + (categoryColors[cat] || '#64748b') + '"></div>' +
+          '<span class="' + (isActive ? 'text-cyan-400' : 'text-slate-400') + '">' + cat + '</span>' +
+          '<span class="text-[9px] text-slate-600 font-bold ml-0.5">' + count + '</span>' +
+          '</div>';
+    }
+    
+    if (html === '' && categorySearchKeyword) {
+      html = '<div class="w-full text-center py-4 text-slate-600 text-[10px]">未找到匹配分类</div>';
+    }
+    
+    filtersContainer.innerHTML = html;
+
+    // 绑定点击事件
+    filtersContainer.querySelectorAll('.category-filter').forEach(function(el) {
+      el.addEventListener('click', function() {
+        var cat = el.dataset.category;
+        if (activeCategories.has(cat)) {
+          activeCategories.delete(cat);
+        } else {
+          activeCategories.add(cat);
+        }
+        renderFilters(); // 局部重绘 UI
+        filterNodes();   // 更新图谱状态
+      });
+    });
   }
-  legendContainer.innerHTML = legendHtml;
+
+  // 初始渲染
+  renderFilters();
+
+  // 4. 全局搜索监听 (仅绑定一次)
+  if (searchInput && !searchInput.dataset.bound) {
+    searchInput.dataset.bound = 'true';
+    searchInput.addEventListener('input', function(e) {
+      categorySearchKeyword = e.target.value;
+      renderFilters();
+    });
+  }
+
+  // 5. 展开按钮监听 (仅绑定一次)
+  if (showAllBtn && !showAllBtn.dataset.bound) {
+    showAllBtn.dataset.bound = 'true';
+    showAllBtn.addEventListener('click', function() {
+      isShowingAllCategories = true;
+      renderFilters();
+    });
+  }
 }
 
 function filterNodes() {
